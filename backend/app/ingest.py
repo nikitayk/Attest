@@ -96,24 +96,24 @@ def build_signed_manifest_from_dir(
         "chunk_overlap": settings.chunk_overlap,
     }
 
-    private_key = load_private_key(settings.signing_key_pem.encode("utf-8"))
+    private_key = load_private_key(settings.get_signing_key_pem().encode("utf-8"))
     manifest_dict["signature"] = sign_bytes(
         canonical_json_bytes(manifest_dict), private_key
     )
     return Manifest(**manifest_dict)
 
 
-def seed_preview_manifest(manifest_store: ManifestStore) -> Manifest:
+async def seed_preview_manifest(manifest_store: ManifestStore) -> Manifest:
     """Persist a lightweight manifest for hosted preview mode."""
     settings = get_settings()
     manifest = build_signed_manifest_from_dir(
         embedding_model=settings.preview_embedding_label
     )
-    manifest_store.store_manifest(manifest)
+    await manifest_store.store_manifest(manifest)
     return manifest
 
 
-def ingest_corpus(
+async def ingest_corpus(
     data_dir: Path | None = None,
     vector_store: VectorStore | None = None,
     manifest_store: ManifestStore | None = None,
@@ -134,7 +134,7 @@ def ingest_corpus(
         manifest_store = ManifestStore()
 
     # Wipe existing collection for reseed-on-boot
-    vector_store.delete_collection()
+    await vector_store.delete_collection()
 
     # Read all documents
     doc_files = sorted(data_dir.glob("*.md")) + sorted(data_dir.glob("*.txt"))
@@ -188,16 +188,16 @@ def ingest_corpus(
     }
 
     # Sign manifest
-    private_key = load_private_key(settings.signing_key_pem.encode("utf-8"))
+    private_key = load_private_key(settings.get_signing_key_pem().encode("utf-8"))
     signature = sign_bytes(canonical_json_bytes(manifest_dict), private_key)
     manifest_dict["signature"] = signature
 
     manifest = Manifest(**manifest_dict)
 
-    vector_store.add_chunks(chunk_ids, texts, metadatas)
+    await vector_store.add_chunks(chunk_ids, texts, metadatas)
 
-    # Store manifest in SQLite
-    manifest_store.store_manifest(manifest)
+    # Store manifest in Postgres
+    await manifest_store.store_manifest(manifest)
 
     return manifest
 
@@ -217,7 +217,7 @@ def create_embeddings(texts: list[str], model_name: str) -> list[list[float]]:
     return [item.embedding for item in response.data]
 
 
-def ingest_single_document(
+async def ingest_single_document(
     doc_id: str,
     text: str,
     vector_store: VectorStore,
@@ -261,7 +261,7 @@ def ingest_single_document(
     }
     
     # Sign manifest
-    private_key = load_private_key(settings.signing_key_pem.encode("utf-8"))
+    private_key = load_private_key(settings.get_signing_key_pem().encode("utf-8"))
     signature = sign_bytes(canonical_json_bytes(manifest_dict), private_key)
     manifest_dict["signature"] = signature
     
@@ -269,9 +269,9 @@ def ingest_single_document(
     
     # Store in vector store
     embeddings = vector_store.embed_texts(chunks)
-    vector_store.add_documents(doc_id, chunks, embeddings)
+    await vector_store.add_documents(doc_id, chunks, embeddings)
     
     # Store manifest
-    manifest_store.store_manifest(manifest)
+    await manifest_store.store_manifest(manifest)
     
     return manifest

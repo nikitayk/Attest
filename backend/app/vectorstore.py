@@ -1,46 +1,45 @@
-"""Chroma vector store with OpenAI embeddings."""
+"""pgvector vector store with sentence-transformers embeddings."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from app.config import get_settings
+from app.db_models import Base, Chunk
+from pgvector.sqlalchemy import Vector
+from sentence_transformers import SentenceTransformer
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 
 class VectorStore:
-    """ChromaDB wrapper with OpenAI embeddings API."""
+    """pgvector wrapper with sentence-transformers embeddings."""
 
-    def __init__(self, collection_name: str = "attest_chunks"):
-        import chromadb
-        from chromadb.config import Settings as ChromaSettings
-        from openai import OpenAI
-
+    def __init__(self):
         settings = get_settings()
-        self._openai_client = OpenAI(api_key=settings.openai_api_key)
-        self._embedding_model = settings.embedding_model
-        self._chroma_path = settings.resolve_path(settings.chroma_path)
-
-        # Keep Chroma on disk-backed storage to avoid duplicating the full index in RAM.
-        self._chroma_path.mkdir(parents=True, exist_ok=True)
-        self._client = chromadb.PersistentClient(
-            path=str(self._chroma_path),
-            settings=ChromaSettings(anonymized_telemetry=False),
+        # Convert postgres:// or postgresql:// to postgresql+asyncpg:// for asyncpg
+        # Remove sslmode parameter as asyncpg handles SSL differently
+        db_url = settings.database_url.replace("postgres://", "postgresql+asyncpg://").replace("postgresql://", "postgresql+asyncpg://")
+        db_url = db_url.replace("?sslmode=require", "").replace("&sslmode=require", "")
+        self.engine = create_async_engine(db_url, echo=False)
+        self.async_session = sessionmaker(
+            self.engine, class_=AsyncSession, expire_on_commit=False
         )
-
-        self._collection = self._client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
+        
+        # Load embedding model
+        self._embedding_model = SentenceTransformer(settings.embedding_model)
+        self._embedding_dim = self._embedding_model.get_sentence_embedding_dimension()
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a list of texts using OpenAI API."""
-        response = self._openai_client.embeddings.create(
-            input=texts,
-            model=self._embedding_model
-        )
-        return [item.embedding for item in response.data]
+        """Generate embeddings for a list of texts using sentence-transformers."""
+        embeddings = self._embedding_model.encode(texts, convert_to_numpy=False)
+        # convert_to_numpy=False returns a list, but ensure it's the right format
+        if hasattr(embeddings, 'tolist'):
+            return embeddings.tolist()
+        return embeddings
 
-    def add_chunks(
+    async def add_chunks(
         self,
         chunk_ids: list[str],
         texts: list[str],
@@ -48,53 +47,75 @@ class VectorStore:
     ) -> None:
         """Add chunks with embeddings to the collection."""
         embeddings = self.embed_texts(texts)
-        self._collection.add(
-            ids=chunk_ids,
-            embeddings=embeddings,
-            documents=texts,
-            metadatas=metadatas,
-        )
+        
+        async with self.async_session() as session:
+            for chunk_id, text, embedding, metadata in zip(chunk_ids, texts, embeddings, metadatas):
+                doc_id = metadata.get("doc_id")
+                chunk_index = metadata.get("chunk_index")
+                
+                # Ensure embedding is a list of floats, not a string
+                if isinstance(embedding, str):
+                    import json
+                    embedding = json.loads(embedding)
+                
+                chunk = Chunk(
+                    doc_id=doc_id,
+                    chunk_index=chunk_index,
+                    text=text,
+                    embedding=embedding,
+                )
+                session.add(chunk)
+            
+            await session.commit()
 
-    def query(self, query_text: str, top_k: int = 3) -> list[dict[str, Any]]:
+    async def query(self, query_text: str, top_k: int = 3) -> list[dict[str, Any]]:
         """
-        Retrieve top-k chunks by semantic similarity.
+        Retrieve top-k chunks by semantic similarity using pgvector.
 
         Returns list of dicts with: id, text, metadata, distance.
         """
-        query_embedding = self.embed_texts([query_text])
-
-        results = self._collection.query(
-            query_embeddings=query_embedding,
-            n_results=min(top_k, self._collection.count()),
-        )
-
-        # Convert Chroma format to list of dicts
-        chunks = []
-        for i in range(len(results["ids"][0])):
-            chunks.append(
-                {
-                    "id": results["ids"][0][i],
-                    "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
-                    "distance": results["distances"][0][i],
-                }
+        query_embedding = self.embed_texts([query_text])[0]
+        
+        async with self.async_session() as session:
+            # Use pgvector cosine similarity
+            from sqlalchemy import func
+            
+            result = await session.execute(
+                select(
+                    Chunk,
+                    (1 - Chunk.embedding.cosine_distance(query_embedding)).label("similarity")
+                )
+                .order_by(Chunk.embedding.cosine_distance(query_embedding))
+                .limit(top_k)
             )
+            
+            chunks = []
+            for row in result:
+                chunk, similarity = row
+                chunks.append({
+                    "id": f"{chunk.doc_id}#{chunk.chunk_index}",
+                    "text": chunk.text,
+                    "metadata": {"doc_id": chunk.doc_id, "chunk_index": chunk.chunk_index},
+                    "distance": 1 - similarity,  # Convert similarity to distance
+                })
+            
+            return chunks
 
-        return chunks
+    async def delete_collection(self) -> None:
+        """Wipe all chunks for reseed-on-boot."""
+        async with self.async_session() as session:
+            await session.execute(delete(Chunk))
+            await session.commit()
 
-    def delete_collection(self) -> None:
-        """Wipe the collection for reseed-on-boot."""
-        self._client.delete_collection(self._collection.name)
-        self._collection = self._client.get_or_create_collection(
-            name=self._collection.name,
-            metadata={"hnsw:space": "cosine"},
-        )
-
-    def count(self) -> int:
+    async def count(self) -> int:
         """Return total number of chunks in the collection."""
-        return self._collection.count()
+        async with self.async_session() as session:
+            from sqlalchemy import func
+            
+            result = await session.execute(select(func.count()).select_from(Chunk))
+            return result.scalar() or 0
 
-    def add_documents(
+    async def add_documents(
         self,
         doc_id: str,
         chunks: list[str],
@@ -105,32 +126,31 @@ class VectorStore:
         
         Used for document upload functionality.
         """
-        chunk_ids = [f"{doc_id}#{i}" for i in range(len(chunks))]
-        metadatas = [
-            {"doc_id": doc_id, "chunk_index": i}
-            for i in range(len(chunks))
-        ]
-        
-        self._collection.add(
-            ids=chunk_ids,
-            embeddings=embeddings,
-            documents=chunks,
-            metadatas=metadatas,
-        )
+        async with self.async_session() as session:
+            for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
+                # Ensure embedding is a list of floats, not a string
+                if isinstance(embedding, str):
+                    import json
+                    embedding = json.loads(embedding)
+                
+                chunk = Chunk(
+                    doc_id=doc_id,
+                    chunk_index=i,
+                    text=chunk_text,
+                    embedding=embedding,
+                )
+                session.add(chunk)
+            
+            await session.commit()
 
-    def delete_document(self, doc_id: str) -> None:
+    async def delete_document(self, doc_id: str) -> None:
         """
         Delete all chunks for a specific document.
         
         Used for document deletion functionality.
         """
-        # Get all chunk IDs for this document
-        all_chunks = self._collection.get()
-        ids_to_delete = []
-        
-        for chunk_id, metadata in zip(all_chunks["ids"], all_chunks["metadatas"]):
-            if metadata.get("doc_id") == doc_id:
-                ids_to_delete.append(chunk_id)
-        
-        if ids_to_delete:
-            self._collection.delete(ids=ids_to_delete)
+        async with self.async_session() as session:
+            await session.execute(
+                select(Chunk).where(Chunk.doc_id == doc_id).delete()
+            )
+            await session.commit()

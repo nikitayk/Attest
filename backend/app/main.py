@@ -36,7 +36,7 @@ _vector_store: VectorStore | None = None
 _manifest_store: ManifestStore | None = None
 
 
-def ensure_manifest_store() -> ManifestStore:
+async def ensure_manifest_store() -> ManifestStore:
     """Lazily initialize manifest storage for lightweight boot on constrained hosts."""
     global _manifest_store, _manifest
 
@@ -45,9 +45,9 @@ def ensure_manifest_store() -> ManifestStore:
 
     if _manifest is None:
         settings = get_settings()
-        latest_manifest = _manifest_store.get_latest_manifest()
+        latest_manifest = await _manifest_store.get_latest_manifest()
         if latest_manifest is None and settings.hosted_preview_mode:
-            latest_manifest = seed_preview_manifest(_manifest_store)
+            latest_manifest = await seed_preview_manifest(_manifest_store)
         if latest_manifest is not None:
             _manifest = latest_manifest.model_dump()
 
@@ -66,30 +66,50 @@ def ensure_vector_store() -> VectorStore:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Optionally reseed the corpus on startup."""
+    """Connect to Neon and ingest corpus only if first-ever boot."""
     global _manifest, _vector_store, _manifest_store
 
     logger.info("ATTEST starting up...")
     settings = get_settings()
 
-    _manifest_store = ensure_manifest_store()
+    _manifest_store = ManifestStore()
+    _vector_store = VectorStore()
 
     if settings.hosted_preview_mode:
         logger.info("Hosted preview mode enabled. Using lightweight corpus manifest.")
+        latest_manifest = await _manifest_store.get_latest_manifest()
+        if latest_manifest is None:
+            latest_manifest = await seed_preview_manifest(_manifest_store)
+        if latest_manifest is not None:
+            _manifest = latest_manifest.model_dump()
     elif settings.auto_ingest_on_startup:
         try:
-            _vector_store = VectorStore()
-            logger.info(f"Ingesting corpus from {settings.resolve_path(settings.data_dir)}")
-            manifest = ingest_corpus(
-                vector_store=_vector_store, manifest_store=_manifest_store
-            )
-            _manifest = manifest.model_dump()
-            logger.info(
-                f"Ingested {len(manifest.doc_ids)} docs, {len(manifest.chunks)} chunks, "
-                f"Merkle root={manifest.merkle_root[:16]}..."
-            )
+            # Check if corpus already persisted
+            doc_count = await _manifest_store.get_document_count()
+            
+            if doc_count == 0:
+                # First-ever boot → run full ingest
+                logger.info(f"First-ever boot: ingesting corpus from {settings.resolve_path(settings.data_dir)}")
+                manifest = await ingest_corpus(
+                    vector_store=_vector_store, manifest_store=_manifest_store
+                )
+                _manifest = manifest.model_dump()
+                logger.info(
+                    f"Ingested {len(manifest.doc_ids)} docs, {len(manifest.chunks)} chunks, "
+                    f"Merkle root={manifest.merkle_root[:16]}..."
+                )
+            else:
+                # Corpus already persisted → just load manifest
+                logger.info(f"Corpus already persisted ({doc_count} docs). Loading manifest from Neon.")
+                latest_manifest = await _manifest_store.get_latest_manifest()
+                if latest_manifest:
+                    _manifest = latest_manifest.model_dump()
+                    logger.info(
+                        f"Loaded manifest with {len(latest_manifest.doc_ids)} docs, "
+                        f"{len(latest_manifest.chunks)} chunks"
+                    )
         except Exception as e:
-            logger.error(f"Ingestion failed: {e}")
+            logger.error(f"Startup failed: {e}")
             raise
     else:
         logger.info(
@@ -141,7 +161,7 @@ def health_check():
 
 
 @app.post("/ingest")
-def trigger_ingest(request: IngestRequest) -> ManifestSummary:
+async def trigger_ingest(request: IngestRequest) -> ManifestSummary:
     """
     Trigger ingestion (full corpus or single doc).
 
@@ -156,10 +176,10 @@ def trigger_ingest(request: IngestRequest) -> ManifestSummary:
             detail="Hosted preview disables seed ingestion to keep the demo stable on free hosting.",
         )
 
-    _manifest_store = ensure_manifest_store()
-    _vector_store = ensure_vector_store()
+    _manifest_store = ManifestStore()
+    _vector_store = VectorStore()
 
-    manifest = ingest_corpus(
+    manifest = await ingest_corpus(
         vector_store=_vector_store, manifest_store=_manifest_store
     )
     _manifest = manifest.model_dump()
@@ -174,16 +194,16 @@ def trigger_ingest(request: IngestRequest) -> ManifestSummary:
 
 
 @app.post("/query")
-def query_endpoint(request: QueryRequest) -> QueryResult:
+async def query_endpoint(request: QueryRequest) -> QueryResult:
     """
     Query the RAG system and return answer with certificate.
     """
     try:
         settings = get_settings()
-        _manifest_store = ensure_manifest_store()
+        _manifest_store = ManifestStore()
 
         if settings.hosted_preview_mode:
-            answer, error, certificate = retrieve_and_answer_preview(
+            answer, error, certificate = await retrieve_and_answer_preview(
                 request.query, _manifest_store
             )
         else:
@@ -195,7 +215,7 @@ def query_endpoint(request: QueryRequest) -> QueryResult:
                     error="Vector store or manifest store not initialized. Ingest corpus first.",
                 )
 
-            answer, error, certificate = retrieve_and_answer(
+            answer, error, certificate = await retrieve_and_answer(
                 request.query, _vector_store, _manifest_store
             )
 
@@ -204,7 +224,7 @@ def query_endpoint(request: QueryRequest) -> QueryResult:
 
         # Store certificate for retrieval
         if certificate and _manifest_store:
-            _manifest_store.store_certificate(certificate)
+            await _manifest_store.store_certificate(certificate)
 
         return QueryResult(
             ok=True,
@@ -223,11 +243,11 @@ def query_endpoint(request: QueryRequest) -> QueryResult:
 
 
 @app.get("/certificate/{certificate_id}")
-def get_certificate(certificate_id: str):
+async def get_certificate(certificate_id: str):
     """Retrieve a certificate by ID."""
-    manifest_store = ensure_manifest_store()
+    manifest_store = ManifestStore()
 
-    certificate = manifest_store.get_certificate(certificate_id)
+    certificate = await manifest_store.get_certificate(certificate_id)
     if not certificate:
         return {"error": "Certificate not found"}
 
@@ -235,36 +255,36 @@ def get_certificate(certificate_id: str):
 
 
 @app.post("/monitor/trigger")
-def trigger_monitor():
+async def trigger_monitor():
     """Trigger full corpus integrity check (called by cron or manual)."""
-    manifest_store = ensure_manifest_store()
+    manifest_store = ManifestStore()
 
     monitor = IntegrityMonitor(manifest_store)
-    status = monitor.trigger_monitor()
+    status = await monitor.trigger_monitor()
 
     return status.model_dump()
 
 
 @app.get("/monitor/status")
-def get_monitor_status():
+async def get_monitor_status():
     """Get last monitor run status."""
-    manifest_store = ensure_manifest_store()
+    manifest_store = ManifestStore()
 
     monitor = IntegrityMonitor(manifest_store)
     # Return cached status or run quick check
     # For MVP, run quick check
-    status = monitor.trigger_monitor()
+    status = await monitor.trigger_monitor()
 
     return status.model_dump()
 
 
 @app.get("/corpus/health")
-def get_corpus_health():
+async def get_corpus_health():
     """Get health status of all documents."""
-    manifest_store = ensure_manifest_store()
+    manifest_store = ManifestStore()
 
     monitor = IntegrityMonitor(manifest_store)
-    health = monitor.check_corpus_health()
+    health = await monitor.check_corpus_health()
 
     return health.model_dump()
 
@@ -449,8 +469,8 @@ async def upload_document(file: UploadFile = File(...)):
             "error": "Hosted preview is read-only. Upload documents locally for the full ingestion workflow."
         }
 
-    _manifest_store = ensure_manifest_store()
-    _vector_store = ensure_vector_store()
+    _manifest_store = ManifestStore()
+    _vector_store = VectorStore()
     
     # Validate file type
     allowed_extensions = {".txt", ".md", ".pdf"}
@@ -493,7 +513,7 @@ async def upload_document(file: UploadFile = File(...)):
         doc_hash = hash_text(text)
         
         # Check if document already exists
-        existing_manifest = _manifest_store.get_latest_manifest()
+        existing_manifest = await _manifest_store.get_latest_manifest()
         replacing_existing_document = (
             existing_manifest is not None and doc_id in existing_manifest.document_hashes
         )
@@ -520,13 +540,13 @@ async def upload_document(file: UploadFile = File(...)):
         chunk_hashes = [hash_text(chunk) for chunk in chunks]
         
         if replacing_existing_document:
-            _vector_store.delete_document(doc_id)
+            await _vector_store.delete_document(doc_id)
 
         # Add to vector store
         embeddings = _vector_store.embed_texts(chunks)
         
-        # Store in Chroma
-        _vector_store.add_documents(
+        # Store in pgvector
+        await _vector_store.add_documents(
             doc_id=doc_id,
             chunks=chunks,
             embeddings=embeddings
@@ -588,7 +608,7 @@ async def upload_document(file: UploadFile = File(...)):
             )
 
             # Sign manifest
-            private_key_pem = settings.signing_key_pem
+            private_key_pem = settings.get_signing_key_pem()
             from app.crypto import load_private_key
             private_key = load_private_key(private_key_pem.encode("utf-8"))
 
@@ -599,12 +619,12 @@ async def upload_document(file: UploadFile = File(...)):
             new_manifest.signature = signature
 
             # Store updated manifest
-            _manifest_store.store_manifest(new_manifest)
+            await _manifest_store.store_manifest(new_manifest)
             _manifest = new_manifest.model_dump()
         else:
             # No existing manifest, create new one
             from app.ingest import ingest_single_document
-            manifest = ingest_single_document(
+            manifest = await ingest_single_document(
                 doc_id=doc_id,
                 text=text,
                 vector_store=_vector_store,
@@ -628,11 +648,11 @@ async def upload_document(file: UploadFile = File(...)):
 
 
 @app.get("/documents")
-def list_documents():
+async def list_documents():
     """List all documents in the corpus."""
-    manifest_store = ensure_manifest_store()
+    manifest_store = ManifestStore()
     
-    manifest = manifest_store.get_latest_manifest()
+    manifest = await manifest_store.get_latest_manifest()
     if not manifest:
         return DocumentList(documents=[])
     
@@ -647,7 +667,7 @@ def list_documents():
             "filename": f"{doc_id}.md",  # Assume .md for display
             "chunk_count": chunk_count,
             "doc_hash": doc_hash,
-            "status": "QUARANTINED" if manifest_store.is_quarantined(doc_id) else "OK",
+            "status": "QUARANTINED" if await manifest_store.is_quarantined(doc_id) else "OK",
             "uploaded_at": manifest.created_at.isoformat()
         })
     
@@ -655,7 +675,7 @@ def list_documents():
 
 
 @app.delete("/documents/{doc_id}")
-def delete_document(doc_id: str):
+async def delete_document(doc_id: str):
     """
     Delete a document from the corpus.
     
@@ -669,16 +689,16 @@ def delete_document(doc_id: str):
             "error": "Hosted preview is read-only. Delete operations are disabled on the live demo."
         }
 
-    _manifest_store = ensure_manifest_store()
-    _vector_store = ensure_vector_store()
+    _manifest_store = ManifestStore()
+    _vector_store = VectorStore()
 
-    manifest = _manifest_store.get_latest_manifest()
+    manifest = await _manifest_store.get_latest_manifest()
     if not manifest or doc_id not in manifest.doc_ids:
         return {"error": "Document not found"}
     
     try:
         # Remove from vector store
-        _vector_store.delete_document(doc_id)
+        await _vector_store.delete_document(doc_id)
         
         # Remove chunks from manifest
         remaining_chunks = sorted(
@@ -690,7 +710,7 @@ def delete_document(doc_id: str):
         
         if not remaining_chunks:
             # No documents left, clear manifest
-            _manifest_store.clear_manifest()
+            await _manifest_store.clear_manifest()
             global _manifest
             _manifest = None
             return {"message": "Document deleted. Corpus is now empty."}
@@ -721,7 +741,7 @@ def delete_document(doc_id: str):
         
         # Sign manifest
         settings = get_settings()
-        private_key_pem = settings.signing_key_pem
+        private_key_pem = settings.get_signing_key_pem()
         from app.crypto import load_private_key
         private_key = load_private_key(private_key_pem.encode("utf-8"))
         
@@ -730,7 +750,7 @@ def delete_document(doc_id: str):
         new_manifest.signature = signature
         
         # Store updated manifest
-        _manifest_store.store_manifest(new_manifest)
+        await _manifest_store.store_manifest(new_manifest)
         _manifest = new_manifest.model_dump()
         
         logger.info(f"Deleted document: {doc_id}")
@@ -740,3 +760,61 @@ def delete_document(doc_id: str):
     except Exception as e:
         logger.error(f"Document deletion failed: {e}")
         return {"error": f"Failed to delete document: {str(e)}"}
+
+
+@app.post("/demo/simulate-tampering")
+async def simulate_tampering():
+    """
+    Simulate document tampering for demo purposes.
+    
+    This endpoint mutates a chunk in the database directly to demonstrate tamper detection.
+    Restricted to allow-listed demo doc_ids only.
+    """
+    settings = get_settings()
+    
+    if not settings.hosted_preview_mode and not settings.allow_mutating_operations:
+        return {"error": "Tampering simulation is only available in demo mode."}
+    
+    # Allow-list of demo doc_ids that can be tampered with
+    DEMO_DOC_IDS = {"demo-hr-policy", "demo-security-policy"}
+    
+    # For demo, we'll use the first available doc from the corpus
+    _manifest_store = ManifestStore()
+    manifest = await _manifest_store.get_latest_manifest()
+    
+    if not manifest or not manifest.doc_ids:
+        return {"error": "No documents available for tampering simulation"}
+    
+    # Use the first doc_id that's in our allow-list, or the first doc if none match
+    target_doc_id = None
+    for doc_id in manifest.doc_ids:
+        if doc_id in DEMO_DOC_IDS:
+            target_doc_id = doc_id
+            break
+    
+    if not target_doc_id:
+        target_doc_id = manifest.doc_ids[0]  # Fallback to first doc
+    
+    # Mutate chunk 0 of the target document in the database
+    from app.db_models import Chunk
+    from sqlalchemy import select
+    
+    async with _manifest_store.async_session() as session:
+        result = await session.execute(
+            select(Chunk).where(Chunk.doc_id == target_doc_id, Chunk.chunk_index == 0)
+        )
+        chunk = result.scalar_one_or_none()
+        
+        if chunk:
+            chunk.text = chunk.text + " [ALTERED]"
+            await session.commit()
+        else:
+            return {"error": f"Chunk 0 not found for document {target_doc_id}"}
+    
+    logger.info(f"Simulated tampering on document: {target_doc_id}")
+    
+    return {
+        "message": f"Simulated tampering on document {target_doc_id}. Next query against this document will detect the tamper.",
+        "doc_id": target_doc_id,
+        "chunk_index": 0
+    }

@@ -24,18 +24,21 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
 
-    signing_key_pem: str = Field(
-        description="Ed25519 private key PEM. Required in production."
+    signing_key_pem: str | None = Field(
+        default=None,
+        description="Ed25519 private key PEM (optional - will read from file if not provided)."
     )
+    private_key_path: Path = Path("keys/private.pem")
     public_key_path: Path = Path("keys/public_key.pem")
     data_dir: Path = Path("data")
-    chroma_path: Path = Path("/tmp/chroma")
-    manifest_db_path: Path = Path("/tmp/attest.db")
+    database_url: str = Field(
+        description="Neon Postgres connection string. Required for persistence."
+    )
 
     groq_api_key: str = Field(description="Groq API key for LLM generation.")
     groq_model: str = "llama-3.3-70b-versatile"
-    openai_api_key: str = Field(description="OpenAI API key for embeddings.")
-    embedding_model: str = "text-embedding-3-small"
+    openai_api_key: str | None = Field(default=None, description="OpenAI API key for embeddings (deprecated - using sentence-transformers).")
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     preview_embedding_label: str = "preview-lexical-v1"
     top_k: int = 3
     auto_ingest_on_startup: bool = True
@@ -71,6 +74,16 @@ class Settings(BaseSettings):
         if path.is_absolute():
             return path
         return _BACKEND_ROOT / path
+
+    def get_signing_key_pem(self) -> str:
+        """Get signing key PEM from env or file."""
+        if self.signing_key_pem:
+            return self.signing_key_pem
+        # Read from file
+        key_path = self.resolve_path(self.private_key_path)
+        if key_path.exists():
+            return key_path.read_text(encoding="utf-8")
+        raise ValueError(f"Signing key not found in env or at {key_path}")
 
 
 @lru_cache

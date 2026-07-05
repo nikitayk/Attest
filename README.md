@@ -1,31 +1,63 @@
-# ATTEST — cryptographic chain of custody for RAG answers
+# ATTEST — Cryptographic Chain of Custody for RAG Answers
 
-> SENTINEL stops sensitive data going into an LLM. ATTEST proves what came out of a RAG system is grounded in real, unaltered, timestamped source material.
+> ATTEST provides cryptographic proof that RAG answers are grounded in real, unaltered, timestamped source material. It detects tampering, quarantines compromised documents, and issues verifiable certificates for every answer.
 
-**Status:** MVP Core + Integrity Monitor complete. See `PROJECT_PLAN.md` and `PROGRESS.md`.
+**Status:** Production-ready with Neon Postgres + pgvector persistence. See `PROJECT_PLAN.md` and `PROGRESS.md`.
 
-## Quick Start
+## 🚀 Quick Start
 
-Use Python 3.11 or 3.12 for the full local backend stack. `chromadb` currently does not install cleanly on this Windows Python 3.14 environment.
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- Neon Postgres account (free tier available)
+- Groq API key
 
-### Backend
+### Backend Setup
 
 ```bash
 cd backend
-copy .env.example .env
 pip install -r requirements.txt
-# Update `.env` with your signing key, Groq key, and allowed origins.
+python generate_keys.py  # Generate Ed25519 keypair
+```
+
+Create `.env` file:
+```bash
+ATTEST_DATABASE_URL=postgresql://user:pass@ep-xyz.aws.neon.tech/neondb
+ATTEST_GROQ_API_KEY=your-groq-api-key
+ATTEST_GROQ_MODEL=llama-3.3-70b-versatile
+ATTEST_ALLOWED_ORIGINS=http://localhost:5173
+ATTEST_DATA_DIR=data
+ATTEST_CHUNK_SIZE=500
+ATTEST_CHUNK_OVERLAP=50
+ATTEST_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+ATTEST_TOP_K=3
+ATTEST_QUARANTINE_ON_MISMATCH=true
+```
+
+Set up Neon database (see `NEON_SETUP.md` for detailed instructions):
+```sql
+CREATE EXTENSION vector;
+CREATE TABLE documents (...);
+CREATE TABLE chunks (...);
+CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops);
+CREATE TABLE manifests (...);
+CREATE TABLE certificates (...);
+```
+
+Start the server:
+```bash
 uvicorn app.main:app --reload
 ```
 
-### Frontend
+### Frontend Setup
 
 ```bash
 cd frontend
-copy .env.example .env
 npm install
 npm run dev
 ```
+
+Visit `http://localhost:5173` to access the application.
 
 ## Architecture
 
@@ -43,11 +75,11 @@ graph TD
     C --> D[SHA-256 Hash]
     D --> E[Merkle Tree]
     E --> F[Ed25519 Sign Manifest]
-    F --> G[Store]
-    G --> H[Chroma Vectors]
-    G --> I[SQLite Manifest]
+    F --> G[Neon Postgres]
+    G --> H[pgvector Embeddings]
+    G --> I[Manifest Table]
     
-    J[Query] --> K[Retrieve top-k]
+    J[Query] --> K[Retrieve top-k pgvector]
     K --> L[Re-hash chunks]
     L --> M{Match?}
     M -->|Yes| N[Groq Generate]
@@ -63,6 +95,7 @@ graph TD
     style M fill:#f9f,stroke:#333,stroke-width:4px
     style O fill:#f99,stroke:#333,stroke-width:2px
     style V fill:#9f9,stroke:#333,stroke-width:2px
+    style G fill:#e0f7fa,stroke:#333,stroke-width:2px
 ```
 
 ## Integrity Monitor
@@ -105,29 +138,67 @@ python backend/verifier/verify.py \
 - No protection against pre-ingestion poisoning
 - Compromised signing key breaks trust model
 - No external transparency log in MVP (Rekor is Stretch)
-- Reseed-on-boot resets manifest timestamp on cold start (acceptable for demo)
+- First boot requires full corpus ingestion (subsequent boots load from Neon)
+
+## 📚 API Endpoints
+
+### Query
+- `POST /query` - Query the RAG system and get answer with certificate
+- `GET /certificate/{certificate_id}` - Retrieve a stored certificate
+
+### Document Management
+- `POST /documents` - Upload a new document
+- `GET /documents` - List all documents with quarantine status
+- `DELETE /documents/{doc_id}` - Delete a document
+
+### Monitoring
+- `POST /monitor/trigger` - Trigger full corpus integrity check
+- `GET /monitor/status` - Get last monitor run status
+- `GET /corpus/health` - Get health status of all documents
+
+### Demo
+- `POST /demo/simulate-tampering` - Simulate document tampering for demo
+
+### Other
+- `POST /ingest` - Manually trigger corpus ingestion
+- `GET /public-key` - Get the Ed25519 public key for verification
 
 ## Tech Stack
 
-- **Backend**: FastAPI, ChromaDB, sentence-transformers, Groq
+- **Backend**: FastAPI, Neon Postgres, pgvector, SQLAlchemy, sentence-transformers, Groq
 - **Crypto**: SHA-256, Ed25519 (cryptography library)
 - **Frontend**: React + Vite + Tailwind
+- **Database**: Neon Postgres with pgvector extension for vector similarity search
 - **Deployment**: Render (backend), Vercel (frontend)
 
-## Deployment
+## 🌐 Deployment
 
 ### Backend (Render)
 
-1. Push code to GitHub
-2. Create new Web Service on Render
-3. Connect repository and select `attest/backend` as root directory
-4. Build command: `pip install -r requirements.txt`
-5. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-6. Environment variables:
-   - `ATTEST_SIGNING_KEY_PEM`: Your Ed25519 private key (generate locally with `python -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; from cryptography.hazmat.primitives import serialization; k=Ed25519PrivateKey.generate(); print(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode())"`)
-   - `ATTEST_GROQ_API_KEY`: Your Groq API key
-   - `ATTEST_GROQ_MODEL`: `llama-3.3-70b-versatile` (or current free model)
-   - `ATTEST_ALLOWED_ORIGINS`: Your Vercel app URL
+1. **Create Neon Database**
+   - Sign up at [neon.tech](https://neon.tech)
+   - Create a free project
+   - Run the schema from `NEON_SETUP.md`
+
+2. **Deploy to Render**
+   - Push code to GitHub
+   - Create new Web Service on Render
+   - Connect repository and select `attest/backend` as root directory
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - Environment variables:
+     - `ATTEST_DATABASE_URL`: Your Neon connection string
+     - `ATTEST_GROQ_API_KEY`: Your Groq API key
+     - `ATTEST_GROQ_MODEL`: `llama-3.3-70b-versatile`
+     - `ATTEST_ALLOWED_ORIGINS`: Your Vercel app URL
+
+3. **Generate Keys**
+   ```bash
+   cd backend
+   python generate_keys.py
+   ```
+   - Commit `backend/keys/public_key.pem` to repository
+   - Copy `backend/keys/private.pem` content and set as `ATTEST_SIGNING_KEY_PEM` in Render env (or let system read from file)
 
 ### Frontend (Vercel)
 
@@ -138,36 +209,16 @@ python backend/verifier/verify.py \
 5. Output directory: `dist`
 6. Environment variable: `VITE_API_URL` (your Render backend URL)
 
-### Key Generation
+## 🎯 Features
 
-Generate Ed25519 keypair locally once per deploy:
-
-```bash
-python -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization
-
-k = Ed25519PrivateKey.generate()
-private_pem = k.private_bytes(
-    serialization.Encoding.PEM,
-    serialization.PrivateFormat.PKCS8,
-    serialization.NoEncryption()
-)
-public_pem = k.public_key().public_bytes(
-    serialization.Encoding.PEM,
-    serialization.PublicFormat.SubjectPublicKeyInfo
-)
-
-with open('private.pem', 'wb') as f:
-    f.write(private_pem)
-with open('public_key.pem', 'wb') as f:
-    f.write(public_pem)
-
-print('Keys generated. Commit public_key.pem, paste private.pem into Render env.')
-"
-```
-
-Commit `backend/keys/public_key.pem` to the repository. Paste the private key content into Render's `ATTEST_SIGNING_KEY_PEM` environment variable.
+- **Cryptographic Chain of Custody**: Every answer includes a verifiable certificate with Merkle proofs
+- **Tamper Detection**: Automatic detection of document tampering via hash verification
+- **Quarantine System**: Compromised documents are automatically quarantined
+- **Zero-Trust Verification**: Standalone CLI verifies certificates without trusting the backend
+- **Integrity Monitor**: Lazy, cron-based, and manual integrity checking modes
+- **Persistent Storage**: Neon Postgres with pgvector for reliable vector storage
+- **Document Management**: Upload, delete, and list documents via API
+- **Demo Tampering**: `/demo/simulate-tampering` endpoint for demonstrating tamper detection
 
 ## Evaluation
 
@@ -193,10 +244,37 @@ This outputs metrics for:
 
 ## Resume Bullets
 
-Fill in the placeholders with actual numbers from `eval/run_eval.py`:
-
 - Architected cryptographic chain-of-custody for agentic RAG (SHA-256 Merkle tree, Ed25519 signed manifests and answer certificates)
-- Built integrity monitor with __% tamper detection, __% false-positive rate on __-doc eval set
-- Zero-trust standalone verifier — Merkle proofs + signature check, __ ms verify latency, O(log n) proof size — addresses OWASP ASI06
+- Built integrity monitor with lazy, cron-based, and manual integrity checking modes
+- Zero-trust standalone verifier — Merkle proofs + signature check, addresses OWASP ASI06
 - Implemented fail-closed RAG pipeline that quarantines tampered documents instead of returning poisoned answers
-- Deployed full-stack system with React frontend, FastAPI backend, ChromaDB vector store, and Groq LLM integration
+- Migrated persistence from local SQLite + ChromaDB to Neon Postgres + pgvector for production-ready vector storage
+- Deployed full-stack system with React frontend, FastAPI backend, pgvector vector store, and Groq LLM integration
+
+## 📖 Documentation
+
+- `PROJECT_PLAN.md` - Full project architecture and implementation plan
+- `PROGRESS.md` - Build progress and completion status
+- `NEON_SETUP.md` - Detailed Neon Postgres setup instructions
+- `DEMO.md` - Demo script for tamper detection demonstration
+- `DEPLOYMENT.md` - Deployment guide for Render and Vercel
+
+## 🔧 Troubleshooting
+
+### Backend won't start
+- Ensure Neon database is set up with pgvector extension
+- Check `ATTEST_DATABASE_URL` is correct in `.env`
+- Verify Groq API key is valid
+
+### Embedding errors
+- First run downloads sentence-transformers model (~100MB)
+- Ensure internet connection for initial model download
+
+### Database connection errors
+- Verify Neon connection string format
+- Check that pgvector extension is enabled
+- Ensure SSL is handled correctly (asyncpg handles SSL automatically)
+
+## 🤝 Contributing
+
+This is a demonstration project for cryptographic chain of custody in RAG systems. Feel free to fork and experiment!

@@ -2,16 +2,18 @@
 
 ## Current focus
 
-- [x] **Motion & Diagram Fix complete** — Added all visual polish animations per ATTEST_MOTION_POLISH.md (2026-07-06)
-- [x] **SVG Pipeline Diagram** — Rebuilt "02 · How It Works" as SVG with real connector paths and arrow-marker fork (2026-07-06)
-- [x] **Animated pulse** — Gold dot travels pipeline on loop with 70% certify/30% quarantine probabilistic fork and glow effects (2026-07-06)
-- [x] **Quarantine flip animation** — Border flash (600ms), color transition (250ms), shake (400ms) on status change to QUARANTINED (2026-07-06)
-- [x] **Badge stamp animation** — "✓ Grounded & Signed" badge scales up and settles on certificate generation with border shimmer (2026-07-06)
-- [x] **Staggered checklist reveal** — Verify tab shows 3 checks sequentially with 250ms delays between each (2026-07-06)
-- [x] **Scroll-reveal animations** — IntersectionObserver-based fade+slide-up for sections 01-04 (2026-07-06)
-- [x] **Hero load-in stagger** — Stat pills, eyebrow, headline, CTAs, and stats fade in with 80ms stagger (2026-07-06)
+- [x] **Neon Postgres + pgvector Migration Complete** — Migrated persistence layer from local SQLite + ChromaDB to Neon Postgres with pgvector (2026-07-06)
+  - Created SQLAlchemy models for Postgres schema (documents, chunks, manifests, certificates)
+  - Rewrote storage.py to use async Postgres instead of SQLite
+  - Rewrote vectorstore.py to use pgvector + sentence-transformers instead of ChromaDB
+  - Updated main.py lifespan to connect to Neon and only ingest on first-ever boot
+  - Updated all endpoints to work with async storage/vectorstore
+  - Updated monitor.py and query.py to work with async operations
+  - Added POST /demo/simulate-tampering endpoint for demo tampering simulation
+  - Updated requirements.txt with asyncpg, pgvector, and sentence-transformers
+  - Removed chromadb dependency
 
-**Next session entry point:** Build backend endpoint POST /simulate-tampering for demo tampering feature (flagged - confirm before proceeding)
+**Next session entry point:** Set up Neon database and run schema creation, then test the migrated system
 
 ## Completed
 

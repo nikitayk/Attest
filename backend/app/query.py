@@ -91,7 +91,7 @@ def _load_preview_chunks(data_dir: Path) -> list[dict[str, str | int]]:
     return preview_chunks
 
 
-def retrieve_and_answer_preview(
+async def retrieve_and_answer_preview(
     query: str,
     manifest_store: ManifestStore | None = None,
 ) -> tuple[str, str | None, AnswerCertificate | None]:
@@ -100,7 +100,7 @@ def retrieve_and_answer_preview(
     if manifest_store is None:
         manifest_store = ManifestStore()
 
-    manifest = manifest_store.get_latest_manifest()
+    manifest = await manifest_store.get_latest_manifest()
     if not manifest:
         return "", "Hosted preview manifest is unavailable.", None
 
@@ -141,13 +141,13 @@ def retrieve_and_answer_preview(
         chunk_index = int(result["chunk_index"])
         chunk_text_value = str(result["text"])
 
-        if manifest_store.is_quarantined(doc_id):
+        if await manifest_store.is_quarantined(doc_id):
             return "", "Source integrity check failed — document quarantined.", None
 
         actual_hash = hash_text(chunk_text_value)
-        expected_hash = manifest_store.get_chunk_hash(doc_id, chunk_index)
+        expected_hash = await manifest_store.get_chunk_hash(doc_id, chunk_index)
         if expected_hash != actual_hash:
-            manifest_store.quarantine_doc(doc_id, f"Preview chunk mismatch at {chunk_index}")
+            await manifest_store.quarantine_doc(doc_id, f"Preview chunk mismatch at {chunk_index}")
             return "", "Source integrity check failed — document quarantined.", None
 
         global_index = chunk_to_global_index.get((doc_id, chunk_index))
@@ -177,12 +177,12 @@ def retrieve_and_answer_preview(
         "llm_model": settings.groq_model,
     }
 
-    private_key = load_private_key(settings.signing_key_pem.encode("utf-8"))
+    private_key = load_private_key(settings.get_signing_key_pem().encode("utf-8"))
     cert_dict["signature"] = sign_bytes(canonical_json_bytes(cert_dict), private_key)
     return answer, None, AnswerCertificate(**cert_dict)
 
 
-def retrieve_and_answer(
+async def retrieve_and_answer(
     query: str,
     vector_store: VectorStore | None = None,
     manifest_store: ManifestStore | None = None,
@@ -201,13 +201,13 @@ def retrieve_and_answer(
         manifest_store = ManifestStore()
 
     # Retrieve top-k chunks
-    results = vector_store.query(query, top_k=settings.top_k)
+    results = await vector_store.query(query, top_k=settings.top_k)
 
     if not results:
         return "I don't know.", None, None
 
     # Get manifest for Merkle proofs
-    manifest = manifest_store.get_latest_manifest()
+    manifest = await manifest_store.get_latest_manifest()
     if not manifest:
         return "", "No manifest found. Ingest corpus first.", None
 
@@ -226,18 +226,18 @@ def retrieve_and_answer(
         chunk_text = result["text"]
 
         # Check if document is quarantined
-        if manifest_store.is_quarantined(doc_id):
+        if await manifest_store.is_quarantined(doc_id):
             return "", f"Source integrity check failed — answer withheld, document quarantined.", None
 
         # Re-hash chunk and compare with manifest
-        expected_hash = manifest_store.get_chunk_hash(doc_id, chunk_index)
+        expected_hash = await manifest_store.get_chunk_hash(doc_id, chunk_index)
         if expected_hash is None:
             return "", f"Chunk not found in manifest: {doc_id}#{chunk_index}", None
 
         actual_hash = hash_text(chunk_text)
         if actual_hash != expected_hash:
             # Tamper detected — quarantine document
-            manifest_store.quarantine_doc(
+            await manifest_store.quarantine_doc(
                 doc_id, f"Chunk hash mismatch at index {chunk_index}"
             )
             return "", f"Source integrity check failed — answer withheld, document quarantined.", None
@@ -282,7 +282,7 @@ def retrieve_and_answer(
         "llm_model": settings.groq_model,
     }
 
-    private_key = load_private_key(settings.signing_key_pem.encode("utf-8"))
+    private_key = load_private_key(settings.get_signing_key_pem().encode("utf-8"))
     signature = sign_bytes(canonical_json_bytes(cert_dict), private_key)
     cert_dict["signature"] = signature
 
