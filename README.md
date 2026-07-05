@@ -219,6 +219,11 @@ python backend/verifier/verify.py \
 - **Persistent Storage**: Neon Postgres with pgvector for reliable vector storage
 - **Document Management**: Upload, delete, and list documents via API
 - **Demo Tampering**: `/demo/simulate-tampering` endpoint for demonstrating tamper detection
+- **API Rate Limiting**: Production-grade rate limiting with slowapi (10 queries/minute, 5 ingests/minute)
+- **Health Checks**: Comprehensive `/health` endpoint for monitoring database and vector store status
+- **Performance Metrics**: `/metrics` endpoint with query latency statistics (p50, p95, p99)
+- **OpenAPI Documentation**: Interactive API documentation at `/docs` (Swagger UI)
+- **Correlation Tracking**: Request correlation IDs for debugging and monitoring
 
 ## Evaluation
 

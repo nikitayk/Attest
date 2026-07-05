@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import io
 import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
+from typing import Dict
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.crypto import canonical_json_bytes, load_public_key, verify_signature, verify_merkle_proof, hash_text
@@ -29,6 +35,25 @@ from app.vectorstore import VectorStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app = FastAPI(
+    title="ATTEST API",
+    description="Cryptographic chain of custody for RAG answers",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Performance metrics
+performance_metrics: Dict[str, list] = {
+    "query_latency": [],
+    "ingest_latency": [],
+    "error_count": 0
+}
 
 # Global state
 _manifest: dict | None = None
@@ -71,6 +96,15 @@ async def lifespan(app: FastAPI):
 
     logger.info("ATTEST starting up...")
     settings = get_settings()
+
+    # Configure CORS from settings
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     _manifest_store = ManifestStore()
     _vector_store = VectorStore()
@@ -161,7 +195,8 @@ def health_check():
 
 
 @app.post("/ingest")
-async def trigger_ingest(request: IngestRequest) -> ManifestSummary:
+@limiter.limit("5/minute")
+async def trigger_ingest(request: IngestRequest, req: Request) -> ManifestSummary:
     """
     Trigger ingestion (full corpus or single doc).
 
@@ -194,10 +229,14 @@ async def trigger_ingest(request: IngestRequest) -> ManifestSummary:
 
 
 @app.post("/query")
-async def query_endpoint(request: QueryRequest) -> QueryResult:
+@limiter.limit("10/minute")
+async def query_endpoint(request: QueryRequest, req: Request) -> QueryResult:
     """
     Query the RAG system and return answer with certificate.
     """
+    start_time = time.time()
+    correlation_id = str(uuid.uuid4())
+    
     try:
         settings = get_settings()
         _manifest_store = ManifestStore()
@@ -220,11 +259,20 @@ async def query_endpoint(request: QueryRequest) -> QueryResult:
             )
 
         if error:
+            performance_metrics["error_count"] += 1
             return QueryResult(ok=False, answer=None, certificate=None, error=error)
 
         # Store certificate for retrieval
         if certificate and _manifest_store:
             await _manifest_store.store_certificate(certificate)
+
+        # Track performance
+        latency = time.time() - start_time
+        performance_metrics["query_latency"].append(latency)
+        if len(performance_metrics["query_latency"]) > 1000:
+            performance_metrics["query_latency"] = performance_metrics["query_latency"][-1000:]
+
+        logger.info(f"Query completed in {latency:.2f}s - correlation_id: {correlation_id}")
 
         return QueryResult(
             ok=True,
@@ -233,7 +281,8 @@ async def query_endpoint(request: QueryRequest) -> QueryResult:
             error=None,
         )
     except Exception as e:
-        logger.error(f"Query failed: {e}")
+        performance_metrics["error_count"] += 1
+        logger.error(f"Query failed: {e} - correlation_id: {correlation_id}")
         return QueryResult(
             ok=False,
             answer=None,
@@ -453,7 +502,8 @@ def verify_certificate_endpoint(request: VerifyRequest) -> VerifyResult:
 
 
 @app.post("/documents")
-async def upload_document(file: UploadFile = File(...)):
+@limiter.limit("10/minute")
+async def upload_document(file: UploadFile = File(...), request: Request = None):
     """
     Upload a document for ingestion into the RAG system.
     
@@ -817,4 +867,53 @@ async def simulate_tampering():
         "message": f"Simulated tampering on document {target_doc_id}. Next query against this document will detect the tamper.",
         "doc_id": target_doc_id,
         "chunk_index": 0
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Comprehensive health check endpoint."""
+    try:
+        settings = get_settings()
+        manifest_store = ManifestStore()
+        
+        # Check database connection
+        doc_count = await manifest_store.get_document_count()
+        
+        # Check vector store
+        vector_store = VectorStore()
+        chunk_count = await vector_store.count()
+        
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "document_count": doc_count,
+            "chunk_count": chunk_count,
+            "embedding_model": settings.embedding_model,
+            "llm_model": settings.groq_model
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """Performance metrics endpoint."""
+    import statistics
+    
+    query_latencies = performance_metrics["query_latency"]
+    
+    return {
+        "query_latency": {
+            "count": len(query_latencies),
+            "avg": statistics.mean(query_latencies) if query_latencies else 0,
+            "p50": statistics.median(query_latencies) if query_latencies else 0,
+            "p95": sorted(query_latencies)[int(len(query_latencies) * 0.95)] if len(query_latencies) > 0 else 0,
+            "p99": sorted(query_latencies)[int(len(query_latencies) * 0.99)] if len(query_latencies) > 0 else 0,
+        },
+        "error_count": performance_metrics["error_count"],
+        "total_queries": len(query_latencies)
     }
