@@ -2,13 +2,14 @@
 
 ## Current focus
 
-- [x] **UI/UX + Positioning Fix complete** — Rebuilt landing page as one-page scrolling layout with Hero, Problem, How It Works, Try It, Built With, and Footer sections (2026-07-06)
-- [x] **New accent color applied** — Warm gold/amber (#D4AF37–#E8B84B) on near-black slate (#0B0F14/#11161C) replacing SENTINEL's red (2026-07-06)
-- [x] **Hero copy block added** — Verbatim from master prompt section 1.4 with tagline "🔏 Don't Trust. Verify." (2026-07-06)
-- [x] **Verify tab checklist** — Already implemented 3-row checklist (hash match / merkle proof valid / signature valid) (2026-07-06)
-- [x] **Simulate Tampering button placeholder** — Added disabled button with TODO comment for required backend endpoint POST /simulate-tampering (2026-07-06)
-- [x] **Demo Corpus toggle** — Added toggle in Try It section header with "Your Documents (coming soon)" disabled state (2026-07-06)
-- [x] **Cross-linking to SENTINEL** — Added sibling project links in hero, nav, and footer (2026-07-06)
+- [x] **Motion & Diagram Fix complete** — Added all visual polish animations per ATTEST_MOTION_POLISH.md (2026-07-06)
+- [x] **SVG Pipeline Diagram** — Rebuilt "02 · How It Works" as SVG with real connector paths and arrow-marker fork (2026-07-06)
+- [x] **Animated pulse** — Gold dot travels pipeline on loop with 70% certify/30% quarantine probabilistic fork and glow effects (2026-07-06)
+- [x] **Quarantine flip animation** — Border flash (600ms), color transition (250ms), shake (400ms) on status change to QUARANTINED (2026-07-06)
+- [x] **Badge stamp animation** — "✓ Grounded & Signed" badge scales up and settles on certificate generation with border shimmer (2026-07-06)
+- [x] **Staggered checklist reveal** — Verify tab shows 3 checks sequentially with 250ms delays between each (2026-07-06)
+- [x] **Scroll-reveal animations** — IntersectionObserver-based fade+slide-up for sections 01-04 (2026-07-06)
+- [x] **Hero load-in stagger** — Stat pills, eyebrow, headline, CTAs, and stats fade in with 80ms stagger (2026-07-06)
 
 **Next session entry point:** Build backend endpoint POST /simulate-tampering for demo tampering feature (flagged - confirm before proceeding)
 

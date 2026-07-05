@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { verifyCertificate } from '../api/client'
 import { Alert, Button, CodeBlock, Pill, SectionHeader, Surface } from '../components/ui'
 
@@ -13,6 +13,7 @@ export default function Verify({ systemStatus }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [visibleChecks, setVisibleChecks] = useState([false, false, false])
 
   const handleVerify = async () => {
     setLoading(true)
@@ -34,6 +35,11 @@ export default function Verify({ systemStatus }) {
           proof_valid: data.proof_valid,
           signature_valid: data.signature_valid,
         })
+        // Stagger reveal of checks
+        setVisibleChecks([false, false, false])
+        setTimeout(() => setVisibleChecks([true, false, false]), 250)
+        setTimeout(() => setVisibleChecks([true, true, false]), 500)
+        setTimeout(() => setVisibleChecks([true, true, true]), 750)
       } else {
         setError(data.reason || 'Verification failed')
       }
@@ -175,12 +181,15 @@ export default function Verify({ systemStatus }) {
           <p className="mt-2 text-sm text-gray-300">{result.reason}</p>
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
-            {CHECK_ITEMS.map((item) => {
+            {CHECK_ITEMS.map((item, index) => {
               const passed = result[item.key]
+              const isVisible = visibleChecks[index]
               return (
                 <div
                   key={item.key}
-                  className="rounded-md border border-gray-600 bg-gray-700/30 p-4"
+                  className={`rounded-md border border-gray-600 bg-slate-700/30 p-4 transition-opacity duration-300 ${
+                    isVisible ? 'opacity-100' : 'opacity-0'
+                  }`}
                 >
                   <Pill tone={passed ? 'success' : 'danger'}>{passed ? 'Passed' : 'Failed'}</Pill>
                   <p className="mt-2 text-sm text-gray-200">{item.label}</p>

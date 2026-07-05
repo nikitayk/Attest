@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Ask from './pages/Ask'
 import Verify from './pages/Verify'
 import CorpusHealth from './pages/CorpusHealth'
+import PipelineDiagram from './components/PipelineDiagram'
 import { getSystemStatus } from './api/client'
 import { Button, Pill, Surface, cx } from './components/ui'
 
@@ -10,6 +11,10 @@ function App() {
   const [systemStatus, setSystemStatus] = useState(null)
   const [statusError, setStatusError] = useState(null)
   const [corpusMode, setCorpusMode] = useState('demo')
+  const problemRef = useRef(null)
+  const howItWorksRef = useRef(null)
+  const tryItRef = useRef(null)
+  const stackRef = useRef(null)
 
   useEffect(() => {
     const loadStatus = async () => {
@@ -22,6 +27,35 @@ function App() {
     }
 
     loadStatus()
+  }, [])
+
+  // IntersectionObserver for scroll reveal
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible')
+          }
+        })
+      },
+      { threshold: 0.1 }
+    )
+
+    const refs = [problemRef, howItWorksRef, tryItRef, stackRef]
+    refs.forEach((ref) => {
+      if (ref.current) {
+        observer.observe(ref.current)
+      }
+    })
+
+    return () => {
+      refs.forEach((ref) => {
+        if (ref.current) {
+          observer.unobserve(ref.current)
+        }
+      })
+    }
   }, [])
 
   const tabs = [
@@ -89,16 +123,16 @@ function App() {
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="space-y-8">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 hero-stagger-1">
               <Pill tone="accent">🔏 Don't Trust. Verify.</Pill>
               <Pill>CRYPTOGRAPHIC PROVENANCE · RAG INTEGRITY</Pill>
             </div>
 
             <div className="space-y-6">
-              <h1 className="text-4xl font-semibold text-white sm:text-5xl lg:text-6xl">
+              <h1 className="text-4xl font-semibold text-white sm:text-5xl lg:text-6xl hero-stagger-2">
                 RAG answers that carry their own proof.
               </h1>
-              <p className="max-w-3xl text-lg text-gray-400">
+              <p className="max-w-3xl text-lg text-gray-400 hero-stagger-3">
                 ATTEST hashes every source chunk into a Merkle tree, signs the manifest
                 with Ed25519, and re-checks it before every answer — so a poisoned
                 document gets quarantined, not cited. Any certificate can be verified
@@ -106,7 +140,7 @@ function App() {
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap gap-4 hero-stagger-4">
               <Button onClick={() => scrollToSection('try-it')}>
                 Try the Demo →
               </Button>
@@ -118,7 +152,7 @@ function App() {
               </Button>
             </div>
 
-            <div className="flex flex-wrap gap-4 text-sm text-gray-400">
+            <div className="flex flex-wrap gap-4 text-sm text-gray-400 hero-stagger-5">
               <span>SHA-256 + Merkle + Ed25519</span>
               <span>·</span>
               <span>Fail-closed on tamper</span>
@@ -128,7 +162,7 @@ function App() {
               <span>Self-contained certificates</span>
             </div>
 
-            <div className="pt-4">
+            <div className="pt-4 hero-stagger-6">
               <a
                 href="https://nikitayk.github.io/SENTINEL"
                 target="_blank"
@@ -143,7 +177,7 @@ function App() {
       </section>
 
       {/* Section 2: The Problem */}
-      <section id="problem" className="py-16 bg-slate-800">
+      <section ref={problemRef} id="problem" className="scroll-reveal py-16 bg-slate-800">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="space-y-12">
             <div className="space-y-4">
@@ -185,7 +219,7 @@ function App() {
       </section>
 
       {/* Section 3: How It Works */}
-      <section id="how-it-works" className="py-16">
+      <section ref={howItWorksRef} id="how-it-works" className="scroll-reveal py-16">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="space-y-12">
             <div className="space-y-4">
@@ -197,60 +231,13 @@ function App() {
               </h2>
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-4 text-center">
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4">
-                  <p className="text-sm font-medium text-white">Documents</p>
-                </Surface>
-                <span className="text-gray-500">↓</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4">
-                  <p className="text-sm font-medium text-white">Chunk + Hash</p>
-                </Surface>
-                <span className="text-gray-500">↓</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4">
-                  <p className="text-sm font-medium text-white">Merkle Tree</p>
-                </Surface>
-                <span className="text-gray-500">↓</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4">
-                  <p className="text-sm font-medium text-white">Ed25519 Sign</p>
-                </Surface>
-                <span className="text-gray-500">↓</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4">
-                  <p className="text-sm font-medium text-white">Query</p>
-                </Surface>
-                <span className="text-gray-500">↓</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4">
-                  <p className="text-sm font-medium text-white">Re-hash Check</p>
-                </Surface>
-                <span className="text-gray-500">↓</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4 border-green-600/50">
-                  <p className="text-sm font-medium text-green-400">✓ Generate+Certify</p>
-                </Surface>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Surface className="p-4 border-red-600/50">
-                  <p className="text-sm font-medium text-red-400">✗ Quarantine</p>
-                </Surface>
-              </div>
-            </div>
+            <PipelineDiagram />
           </div>
         </div>
       </section>
 
       {/* Section 4: Try It */}
-      <section id="try-it" className="py-16 bg-slate-800">
+      <section ref={tryItRef} id="try-it" className="scroll-reveal py-16 bg-slate-800">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="space-y-8">
             <div className="space-y-4">
@@ -325,7 +312,7 @@ function App() {
       </section>
 
       {/* Section 5: Built With */}
-      <section id="stack" className="py-16">
+      <section ref={stackRef} id="stack" className="scroll-reveal py-16">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="space-y-12">
             <div className="space-y-4">

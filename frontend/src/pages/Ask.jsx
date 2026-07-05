@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { queryBackend } from '../api/client'
 import { Alert, Button, CodeBlock, EmptyState, Pill, SectionHeader, Surface } from '../components/ui'
 
@@ -13,6 +13,9 @@ export default function Ask({ systemStatus }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [showBadgeAnimation, setShowBadgeAnimation] = useState(false)
+  const [showBorderShimmer, setShowBorderShimmer] = useState(false)
+  const prevResultRef = useRef(null)
 
   const isPreview = systemStatus?.mode === 'hosted-preview'
   const sources = useMemo(() => result?.certificate?.chunks || [], [result])
@@ -30,6 +33,12 @@ export default function Ask({ systemStatus }) {
         setResult(data)
         if (data.certificate) {
           window.localStorage.setItem('attest:last-certificate', JSON.stringify(data.certificate))
+          // Trigger badge animation on new certificate
+          setShowBadgeAnimation(true)
+          setShowBorderShimmer(true)
+          // Reset animations after they complete
+          setTimeout(() => setShowBadgeAnimation(false), 400)
+          setTimeout(() => setShowBorderShimmer(false), 600)
         }
       } else {
         setError(data.error || 'Query failed')
@@ -141,9 +150,17 @@ export default function Ask({ systemStatus }) {
 
       {result && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <Surface className="p-6">
+          <Surface className={`p-6 ${showBorderShimmer ? 'border-shimmer' : ''}`}>
             <div className="flex flex-wrap items-center gap-2">
               <Pill tone="success">Answer Generated</Pill>
+              {result.certificate && (
+                <Pill 
+                  tone="accent" 
+                  className={showBadgeAnimation ? 'badge-stamp-in' : ''}
+                >
+                  ✓ Grounded & Signed
+                </Pill>
+              )}
               {result.certificate?.doc_id ? <Pill>{result.certificate.doc_id}</Pill> : null}
             </div>
             <h3 className="mt-4 text-xl font-semibold text-white">Response</h3>

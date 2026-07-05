@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getCorpusHealth, triggerMonitor, triggerIngest, uploadDocument, listDocuments, deleteDocument } from '../api/client'
 import { Alert, Button, CodeBlock, EmptyState, Pill, SectionHeader, Surface } from '../components/ui'
 
@@ -13,6 +13,8 @@ export default function CorpusHealth({ systemStatus }) {
   const [uploadError, setUploadError] = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
   const [monitorStatus, setMonitorStatus] = useState(null)
+  const [quarantinedDocs, setQuarantinedDocs] = useState(new Set())
+  const prevHealthRef = useRef(null)
 
   const isPreview = systemStatus?.mode === 'hosted-preview'
 
@@ -26,6 +28,20 @@ export default function CorpusHealth({ systemStatus }) {
       if (data.error) {
         setError(data.error)
       } else {
+        // Detect status changes for animation
+        if (prevHealthRef.current && data.documents) {
+          const newQuarantined = new Set()
+          data.documents.forEach(doc => {
+            const prevDoc = prevHealthRef.current.documents?.find(d => d.doc_id === doc.doc_id)
+            if (prevDoc?.status === 'OK' && doc.status === 'QUARANTINED') {
+              newQuarantined.add(doc.doc_id)
+            }
+          })
+          setQuarantinedDocs(newQuarantined)
+          // Clear animation classes after 1 second
+          setTimeout(() => setQuarantinedDocs(new Set()), 1000)
+        }
+        prevHealthRef.current = data
         setHealth(data)
       }
     } catch (err) {
@@ -225,7 +241,9 @@ export default function CorpusHealth({ systemStatus }) {
             {health.documents.map((doc) => (
               <div
                 key={doc.doc_id}
-                className="rounded-md border border-gray-600 bg-slate-700/30 p-4"
+                className={`rounded-md border border-gray-600 bg-slate-700/30 p-4 ${
+                  quarantinedDocs.has(doc.doc_id) ? 'quarantine-flip' : ''
+                }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
@@ -234,7 +252,10 @@ export default function CorpusHealth({ systemStatus }) {
                     }`} />
                     <p className="text-sm font-medium text-white">{doc.doc_id}</p>
                   </div>
-                  <Pill tone={doc.status === 'OK' ? 'success' : 'danger'}>
+                  <Pill 
+                    tone={doc.status === 'OK' ? 'success' : 'danger'}
+                    className={quarantinedDocs.has(doc.doc_id) ? 'quarantine-status-pill' : ''}
+                  >
                     {doc.status}
                   </Pill>
                 </div>
