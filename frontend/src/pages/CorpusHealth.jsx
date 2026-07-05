@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { getCorpusHealth, triggerMonitor, uploadDocument, listDocuments, deleteDocument } from '../api/client'
+import { getCorpusHealth, triggerMonitor, triggerIngest, uploadDocument, listDocuments, deleteDocument } from '../api/client'
 
 export default function CorpusHealth() {
   const [health, setHealth] = useState(null)
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(false)
   const [monitoring, setMonitoring] = useState(false)
+  const [ingesting, setIngesting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState(null)
   const [uploadError, setUploadError] = useState(null)
@@ -114,6 +115,26 @@ export default function CorpusHealth() {
     }
   }
 
+  const handleIngest = async () => {
+    setIngesting(true)
+    setError(null)
+
+    try {
+      const result = await triggerIngest()
+
+      if (result.error) {
+        setError(result.error)
+      } else {
+        await fetchDocuments()
+        await fetchHealth()
+      }
+    } catch (err) {
+      setError('Failed to ingest seed documents')
+    } finally {
+      setIngesting(false)
+    }
+  }
+
   useEffect(() => {
     fetchHealth()
     fetchDocuments()
@@ -129,6 +150,13 @@ export default function CorpusHealth() {
           </p>
         </div>
         <div className="flex gap-3">
+          <button
+            onClick={handleIngest}
+            disabled={ingesting}
+            className="inline-flex justify-center rounded-md border border-transparent bg-amber-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50"
+          >
+            {ingesting ? 'Ingesting...' : 'Ingest Seed Data'}
+          </button>
           <button
             onClick={handleRunMonitor}
             disabled={monitoring}

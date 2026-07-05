@@ -36,32 +36,60 @@ _vector_store: VectorStore | None = None
 _manifest_store: ManifestStore | None = None
 
 
+def ensure_manifest_store() -> ManifestStore:
+    """Lazily initialize manifest storage for lightweight boot on constrained hosts."""
+    global _manifest_store, _manifest
+
+    if _manifest_store is None:
+        _manifest_store = ManifestStore()
+
+    if _manifest is None:
+        latest_manifest = _manifest_store.get_latest_manifest()
+        if latest_manifest is not None:
+            _manifest = latest_manifest.model_dump()
+
+    return _manifest_store
+
+
+def ensure_vector_store() -> VectorStore:
+    """Lazily initialize the embedding model and Chroma only when needed."""
+    global _vector_store
+
+    if _vector_store is None:
+        _vector_store = VectorStore()
+
+    return _vector_store
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan: reseed-on-boot — wipe and re-ingest corpus on startup."""
+    """Optionally reseed the corpus on startup."""
     global _manifest, _vector_store, _manifest_store
 
     logger.info("ATTEST starting up...")
     settings = get_settings()
 
-    # Initialize vector store and manifest store
-    _vector_store = VectorStore()
     _manifest_store = ManifestStore()
 
-    # Ingest corpus
-    try:
-        logger.info(f"Ingesting corpus from {settings.resolve_path(settings.data_dir)}")
-        manifest = ingest_corpus(
-            vector_store=_vector_store, manifest_store=_manifest_store
-        )
-        _manifest = manifest.model_dump()
+    if settings.auto_ingest_on_startup:
+        try:
+            _vector_store = VectorStore()
+            logger.info(f"Ingesting corpus from {settings.resolve_path(settings.data_dir)}")
+            manifest = ingest_corpus(
+                vector_store=_vector_store, manifest_store=_manifest_store
+            )
+            _manifest = manifest.model_dump()
+            logger.info(
+                f"Ingested {len(manifest.doc_ids)} docs, {len(manifest.chunks)} chunks, "
+                f"Merkle root={manifest.merkle_root[:16]}..."
+            )
+        except Exception as e:
+            logger.error(f"Ingestion failed: {e}")
+            raise
+    else:
         logger.info(
-            f"Ingested {len(manifest.doc_ids)} docs, {len(manifest.chunks)} chunks, "
-            f"Merkle root={manifest.merkle_root[:16]}..."
+            "Skipping startup ingestion because ATTEST_AUTO_INGEST_ON_STARTUP is disabled."
         )
-    except Exception as e:
-        logger.error(f"Ingestion failed: {e}")
-        raise
 
     yield
 
@@ -102,10 +130,8 @@ def trigger_ingest(request: IngestRequest) -> ManifestSummary:
     """
     global _manifest, _vector_store, _manifest_store
 
-    if _vector_store is None:
-        _vector_store = VectorStore()
-    if _manifest_store is None:
-        _manifest_store = ManifestStore()
+    _manifest_store = ensure_manifest_store()
+    _vector_store = ensure_vector_store()
 
     manifest = ingest_corpus(
         vector_store=_vector_store, manifest_store=_manifest_store
@@ -165,10 +191,9 @@ def query_endpoint(request: QueryRequest) -> QueryResult:
 @app.get("/certificate/{certificate_id}")
 def get_certificate(certificate_id: str):
     """Retrieve a certificate by ID."""
-    if _manifest_store is None:
-        return {"error": "Manifest store not initialized"}
+    manifest_store = ensure_manifest_store()
 
-    certificate = _manifest_store.get_certificate(certificate_id)
+    certificate = manifest_store.get_certificate(certificate_id)
     if not certificate:
         return {"error": "Certificate not found"}
 
@@ -178,10 +203,9 @@ def get_certificate(certificate_id: str):
 @app.post("/monitor/trigger")
 def trigger_monitor():
     """Trigger full corpus integrity check (called by cron or manual)."""
-    if _manifest_store is None:
-        return {"error": "Manifest store not initialized"}
+    manifest_store = ensure_manifest_store()
 
-    monitor = IntegrityMonitor(_manifest_store)
+    monitor = IntegrityMonitor(manifest_store)
     status = monitor.trigger_monitor()
 
     return status.model_dump()
@@ -190,10 +214,9 @@ def trigger_monitor():
 @app.get("/monitor/status")
 def get_monitor_status():
     """Get last monitor run status."""
-    if _manifest_store is None:
-        return {"error": "Manifest store not initialized"}
+    manifest_store = ensure_manifest_store()
 
-    monitor = IntegrityMonitor(_manifest_store)
+    monitor = IntegrityMonitor(manifest_store)
     # Return cached status or run quick check
     # For MVP, run quick check
     status = monitor.trigger_monitor()
@@ -204,10 +227,9 @@ def get_monitor_status():
 @app.get("/corpus/health")
 def get_corpus_health():
     """Get health status of all documents."""
-    if _manifest_store is None:
-        return {"error": "Manifest store not initialized"}
+    manifest_store = ensure_manifest_store()
 
-    monitor = IntegrityMonitor(_manifest_store)
+    monitor = IntegrityMonitor(manifest_store)
     health = monitor.check_corpus_health()
 
     return health.model_dump()
@@ -385,10 +407,10 @@ async def upload_document(file: UploadFile = File(...)):
     The document is chunked, hashed, and added to the vector store.
     The manifest is updated with the new document.
     """
-    global _manifest
+    global _manifest, _vector_store, _manifest_store
 
-    if _vector_store is None or _manifest_store is None:
-        return {"error": "System not initialized"}
+    _manifest_store = ensure_manifest_store()
+    _vector_store = ensure_vector_store()
 
     settings = get_settings()
     
@@ -463,8 +485,12 @@ async def upload_document(file: UploadFile = File(...)):
             _vector_store.delete_document(doc_id)
 
         # Add to vector store
-        from app.ingest import create_embeddings
-        embeddings = create_embeddings(chunks, settings.embedding_model)
+        if hasattr(_vector_store, "embed_texts"):
+            embeddings = _vector_store.embed_texts(chunks)
+        else:
+            from app.ingest import create_embeddings
+
+            embeddings = create_embeddings(chunks, settings.embedding_model)
         
         # Store in Chroma
         _vector_store.add_documents(
@@ -571,10 +597,9 @@ async def upload_document(file: UploadFile = File(...)):
 @app.get("/documents")
 def list_documents():
     """List all documents in the corpus."""
-    if _manifest_store is None:
-        return {"error": "System not initialized"}
+    manifest_store = ensure_manifest_store()
     
-    manifest = _manifest_store.get_latest_manifest()
+    manifest = manifest_store.get_latest_manifest()
     if not manifest:
         return DocumentList(documents=[])
     
@@ -589,7 +614,7 @@ def list_documents():
             "filename": f"{doc_id}.md",  # Assume .md for display
             "chunk_count": chunk_count,
             "doc_hash": doc_hash,
-            "status": "QUARANTINED" if _manifest_store.is_quarantined(doc_id) else "OK",
+            "status": "QUARANTINED" if manifest_store.is_quarantined(doc_id) else "OK",
             "uploaded_at": manifest.created_at.isoformat()
         })
     
@@ -603,8 +628,10 @@ def delete_document(doc_id: str):
     
     This removes the document from the vector store and rebuilds the manifest.
     """
-    if _vector_store is None or _manifest_store is None:
-        return {"error": "System not initialized"}
+    global _vector_store, _manifest_store
+
+    _manifest_store = ensure_manifest_store()
+    _vector_store = ensure_vector_store()
     
     manifest = _manifest_store.get_latest_manifest()
     if not manifest or doc_id not in manifest.doc_ids:

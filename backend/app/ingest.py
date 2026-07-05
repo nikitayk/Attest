@@ -82,6 +82,9 @@ def ingest_corpus(
 
     all_chunks: list[ChunkRecord] = []
     document_hashes: dict[str, str] = {}
+    chunk_ids: list[str] = []
+    texts: list[str] = []
+    metadatas: list[dict[str, str | int]] = []
 
     for doc_path in doc_files:
         doc_id = doc_path.stem
@@ -94,8 +97,16 @@ def ingest_corpus(
         chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
         for idx, chunk in enumerate(chunks):
             chunk_hash = hash_text(chunk)
-            all_chunks.append(
-                ChunkRecord(doc_id=doc_id, chunk_index=idx, hash=chunk_hash)
+            chunk_record = ChunkRecord(doc_id=doc_id, chunk_index=idx, hash=chunk_hash)
+            all_chunks.append(chunk_record)
+            chunk_ids.append(f"{doc_id}#{idx}")
+            texts.append(chunk)
+            metadatas.append(
+                {
+                    "doc_id": doc_id,
+                    "chunk_index": idx,
+                    "hash": chunk_hash,
+                }
             )
 
     # Build Merkle tree from all chunk hashes (deterministic order)
@@ -122,31 +133,6 @@ def ingest_corpus(
 
     manifest = Manifest(**manifest_dict)
 
-    # Store chunks in vector store
-    chunk_ids = []
-    texts = []
-    metadatas = []
-
-    for chunk_record in all_chunks:
-        chunk_id = f"{chunk_record.doc_id}#{chunk_record.chunk_index}"
-        chunk_ids.append(chunk_id)
-        # Reconstruct chunk text for storage (need original text)
-        # For MVP, we'll store the hash and reconstruct later from source
-        # In production, store the actual chunk text
-        doc_path = data_dir / f"{chunk_record.doc_id}.md"
-        if not doc_path.exists():
-            doc_path = data_dir / f"{chunk_record.doc_id}.txt"
-        full_text = doc_path.read_text(encoding="utf-8")
-        chunks = chunk_text(full_text, settings.chunk_size, settings.chunk_overlap)
-        texts.append(chunks[chunk_record.chunk_index])
-        metadatas.append(
-            {
-                "doc_id": chunk_record.doc_id,
-                "chunk_index": chunk_record.chunk_index,
-                "hash": chunk_record.hash,
-            }
-        )
-
     vector_store.add_chunks(chunk_ids, texts, metadatas)
 
     # Store manifest in SQLite
@@ -158,10 +144,11 @@ def ingest_corpus(
 def create_embeddings(texts: list[str], model_name: str) -> list[list[float]]:
     """
     Generate embeddings for a list of texts using sentence-transformers.
-    
-    Helper function for document upload.
+
+    Kept as a compatibility helper for tests and any callers outside the upload path.
     """
     from sentence_transformers import SentenceTransformer
+
     model = SentenceTransformer(model_name)
     return model.encode(texts, show_progress_bar=False).tolist()
 
@@ -217,7 +204,7 @@ def ingest_single_document(
     manifest = Manifest(**manifest_dict)
     
     # Store in vector store
-    embeddings = create_embeddings(chunks, settings.embedding_model)
+    embeddings = vector_store.embed_texts(chunks)
     vector_store.add_documents(doc_id, chunks, embeddings)
     
     # Store manifest

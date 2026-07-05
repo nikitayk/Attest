@@ -25,17 +25,12 @@ class VectorStore:
         )
         self._chroma_path = settings.resolve_path(settings.chroma_path)
 
-        # Use in-memory or persistent Chroma based on path
-        if str(self._chroma_path) == "/tmp/chroma":
-            # In-memory for Render ephemeral storage
-            self._client = chromadb.Client()
-        else:
-            # Persistent for local dev
-            self._chroma_path.mkdir(parents=True, exist_ok=True)
-            self._client = chromadb.PersistentClient(
-                path=str(self._chroma_path),
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
+        # Keep Chroma on disk-backed storage to avoid duplicating the full index in RAM.
+        self._chroma_path.mkdir(parents=True, exist_ok=True)
+        self._client = chromadb.PersistentClient(
+            path=str(self._chroma_path),
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
 
         self._collection = self._client.get_or_create_collection(
             name=collection_name,

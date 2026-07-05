@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     top_k: int = 3
+    auto_ingest_on_startup: bool = True
     allowed_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",

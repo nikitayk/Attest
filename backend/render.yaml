@@ -14,3 +14,9 @@ services:
         value: llama-3.3-70b-versatile
       - key: ATTEST_ALLOWED_ORIGINS
         sync: false
+      - key: ATTEST_AUTO_INGEST_ON_STARTUP
+        value: "false"
+      - key: ATTEST_CHROMA_PATH
+        value: /tmp/chroma
+      - key: ATTEST_MANIFEST_DB_PATH
+        value: /tmp/attest.db

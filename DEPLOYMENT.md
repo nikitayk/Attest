@@ -84,7 +84,7 @@ git push origin main
 4. Configure the service:
 
 **Build & Deploy Settings:**
-- **Root Directory**: `attest/backend`
+- **Root Directory**: `backend`
 - **Build Command**: `pip install -r requirements.txt`
 - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
@@ -93,6 +93,9 @@ git push origin main
 - `ATTEST_GROQ_API_KEY`: Your Groq API key from https://console.groq.com/
 - `ATTEST_GROQ_MODEL`: `llama-3.3-70b-versatile` (or current free model)
 - `ATTEST_ALLOWED_ORIGINS`: Your Vercel origin, for example `https://attest-frontend.vercel.app`
+- `ATTEST_AUTO_INGEST_ON_STARTUP`: `false` on Render free tier to avoid cold-start memory spikes
+- `ATTEST_CHROMA_PATH`: `/tmp/chroma`
+- `ATTEST_MANIFEST_DB_PATH`: `/tmp/attest.db`
 
 **Instance Settings:**
 - **Instance Type**: Free
@@ -104,7 +107,7 @@ Render will:
 1. Build the environment
 2. Install dependencies
 3. Start the FastAPI server
-4. Run the lifespan ingestion (takes 30-60s first time)
+4. Skip corpus ingestion on boot when `ATTEST_AUTO_INGEST_ON_STARTUP=false`
 
 ### 2.4 Verify Backend
 
@@ -117,9 +120,20 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "manifest_loaded": true
+  "manifest_loaded": false
 }
 ```
+
+With `ATTEST_AUTO_INGEST_ON_STARTUP=false`, `manifest_loaded` stays `false` until you seed the corpus.
+
+Then trigger the initial corpus build after the service is healthy:
+```bash
+curl -X POST https://your-app-name.onrender.com/ingest \
+  -H "Content-Type: application/json" \
+  -d "{}"
+```
+
+You can also open the frontend and use the `Ingest Seed Data` button in the `Corpus Health` tab.
 
 **Note the backend URL** - you'll need it for frontend deployment (e.g., `https://attest-backend-xyz.onrender.com`)
 
@@ -134,7 +148,7 @@ Expected response:
 
 **Project Settings:**
 - **Framework Preset**: Vite
-- **Root Directory**: `attest/frontend`
+- **Root Directory**: `frontend`
 - **Build Command**: `npm run build`
 - **Output Directory**: `dist`
 
@@ -222,8 +236,16 @@ python -m verifier.verify \
 
 **Issue**: Network timeout
 - Render free tier spins down after 15 min inactivity
-- First request after spin-down takes 30-60s (ingestion runs)
+- First request after spin-down is faster when startup ingest is disabled
 - Set up cron-job.org to keep it warm
+
+### Render runs out of memory
+
+**Issue**: Service OOMs during startup or first ingest
+- Set `ATTEST_AUTO_INGEST_ON_STARTUP=false` so Render boots before embeddings are computed
+- Keep `ATTEST_CHROMA_PATH=/tmp/chroma` so Chroma uses disk-backed storage instead of in-memory state
+- Trigger `/ingest` manually after deploy, or upload documents incrementally from the frontend
+- If manual ingest still OOMs, move to Render Starter; 512MB is tight for Python + Chroma + sentence-transformers
 
 ### Ingestion fails on cold start
 
