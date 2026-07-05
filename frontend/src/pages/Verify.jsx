@@ -100,7 +100,7 @@ export default function Verify({ systemStatus }) {
                 value={certificate}
                 onChange={(e) => setCertificate(e.target.value)}
                 rows={14}
-                className="mt-2 block w-full rounded-md border border-gray-600 bg-gray-800 px-3 py-2 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-2 block w-full rounded-md border border-gray-600 bg-slate-800 px-3 py-2 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-gold-400 focus:outline-none focus:ring-1 focus:ring-gold-400"
                 placeholder='{"certificate_id": "...", "query": "...", ...}'
                 required
               />
@@ -129,7 +129,7 @@ export default function Verify({ systemStatus }) {
                 {CHECK_ITEMS.map((item, index) => (
                   <div
                     key={item.key}
-                    className="rounded-md border border-gray-600 bg-gray-700/30 p-3"
+                    className="rounded-md border border-gray-600 bg-slate-700/30 p-3"
                   >
                     <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
                       Step {index + 1}

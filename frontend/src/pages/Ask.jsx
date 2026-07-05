@@ -69,7 +69,7 @@ export default function Ask({ systemStatus }) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 rows={6}
-                className="mt-2 block w-full rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-2 block w-full rounded-md border border-gray-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-gold-400 focus:outline-none focus:ring-1 focus:ring-gold-400"
                 placeholder="Ask a policy, incident, onboarding, or security question."
                 required
               />
@@ -103,13 +103,13 @@ export default function Ask({ systemStatus }) {
                   key={prompt}
                   type="button"
                   onClick={() => setQuery(prompt)}
-                  className="w-full rounded-md border border-gray-600 bg-gray-700/50 p-3 text-left text-sm text-gray-200 hover:bg-gray-700 hover:text-white"
+                  className="w-full rounded-md border border-gray-600 bg-slate-700/50 p-3 text-left text-sm text-gray-200 hover:bg-slate-700 hover:text-white"
                 >
                   {prompt}
                 </button>
               ))}
             </div>
-            <div className="mt-4 rounded-md border border-gray-600 bg-gray-700/30 p-3 text-sm text-gray-300">
+            <div className="mt-4 rounded-md border border-gray-600 bg-slate-700/30 p-3 text-sm text-gray-300">
               {isPreview ? (
                 <>
                   The hosted site uses lightweight lexical retrieval over the checked-in demo corpus
@@ -153,15 +153,15 @@ export default function Ask({ systemStatus }) {
 
             {result.certificate && (
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-md border border-gray-600 bg-gray-700/30 p-3">
+                <div className="rounded-md border border-gray-600 bg-slate-700/30 p-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Certificate</p>
                   <p className="mt-2 text-sm text-white">{result.certificate.certificate_id}</p>
                 </div>
-                <div className="rounded-md border border-gray-600 bg-gray-700/30 p-3">
+                <div className="rounded-md border border-gray-600 bg-slate-700/30 p-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Merkle Root</p>
                   <p className="mt-2 break-all text-sm text-white">{result.certificate.merkle_root}</p>
                 </div>
-                <div className="rounded-md border border-gray-600 bg-gray-700/30 p-3">
+                <div className="rounded-md border border-gray-600 bg-slate-700/30 p-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Model Stack</p>
                   <p className="mt-2 text-sm text-white">
                     {result.certificate.embedding_model}
@@ -189,7 +189,7 @@ export default function Ask({ systemStatus }) {
                 {sources.map((chunk) => (
                   <div
                     key={`${chunk.doc_id}-${chunk.chunk_index}`}
-                    className="rounded-md border border-gray-600 bg-gray-700/30 p-4"
+                    className="rounded-md border border-gray-600 bg-slate-700/30 p-4"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <Pill>{chunk.doc_id}</Pill>

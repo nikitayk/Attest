@@ -170,6 +170,12 @@ export default function CorpusHealth({ systemStatus }) {
           <Button variant="ghost" onClick={fetchHealth} disabled={loading}>
             {loading ? 'Refreshing...' : 'Refresh Status'}
           </Button>
+          {/* TODO: Simulate Tampering button requires new backend endpoint POST /simulate-tampering
+               This endpoint should flip one byte on a COPY of a seeded demo doc and re-trigger monitor.
+               Flagged per master prompt section 2.4 - confirm before building backend surface. */}
+          <Button variant="danger" disabled>
+            Simulate Tampering (Demo Mode)
+          </Button>
         </div>
 
         {isPreview && (
@@ -219,7 +225,7 @@ export default function CorpusHealth({ systemStatus }) {
             {health.documents.map((doc) => (
               <div
                 key={doc.doc_id}
-                className="rounded-md border border-gray-600 bg-gray-700/30 p-4"
+                className="rounded-md border border-gray-600 bg-slate-700/30 p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
@@ -323,7 +329,7 @@ export default function CorpusHealth({ systemStatus }) {
                 {documents.map((doc) => (
                   <div
                     key={doc.doc_id}
-                    className="rounded-md border border-gray-600 bg-gray-700/30 p-4"
+                    className="rounded-md border border-gray-600 bg-slate-700/30 p-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div className="flex-1 min-w-0">

@@ -2,16 +2,15 @@
 
 ## Current focus
 
-- [x] **Deployment preparation complete** — Created render.yaml, vercel.json, and comprehensive DEPLOYMENT.md guide (2026-07-05)
-- [x] **Document upload UI complete** — Added upload form and document list with delete buttons to CorpusHealth page (2026-07-05)
-- [x] **Week 3–3.5 Should-Have complete** — Dashboard + Eval (Steps 4.1–4.4) done (2026-07-05)
-- [x] **Documentation complete** — README with Mermaid diagram, deployment instructions, demo script, resume bullets (2026-07-05)
-- [x] **Corpus documents created** — 8 real markdown documents in backend/data/ (2026-07-05)
-- [x] **Key generation setup** — generate_keys.py script and placeholder public_key.pem (2026-07-05)
-- [x] **GitHub Actions CI** — Full CI pipeline with pytest and eval harness (2026-07-05)
-- [x] **End-to-end tests** — test_verify_e2e.py with 3 comprehensive tests (2026-07-05)
+- [x] **UI/UX + Positioning Fix complete** — Rebuilt landing page as one-page scrolling layout with Hero, Problem, How It Works, Try It, Built With, and Footer sections (2026-07-06)
+- [x] **New accent color applied** — Warm gold/amber (#D4AF37–#E8B84B) on near-black slate (#0B0F14/#11161C) replacing SENTINEL's red (2026-07-06)
+- [x] **Hero copy block added** — Verbatim from master prompt section 1.4 with tagline "🔏 Don't Trust. Verify." (2026-07-06)
+- [x] **Verify tab checklist** — Already implemented 3-row checklist (hash match / merkle proof valid / signature valid) (2026-07-06)
+- [x] **Simulate Tampering button placeholder** — Added disabled button with TODO comment for required backend endpoint POST /simulate-tampering (2026-07-06)
+- [x] **Demo Corpus toggle** — Added toggle in Try It section header with "Your Documents (coming soon)" disabled state (2026-07-06)
+- [x] **Cross-linking to SENTINEL** — Added sibling project links in hero, nav, and footer (2026-07-06)
 
-**Next session entry point:** Follow DEPLOYMENT.md to deploy to Render/Vercel
+**Next session entry point:** Build backend endpoint POST /simulate-tampering for demo tampering feature (flagged - confirm before proceeding)
 
 ## Completed
 

@@ -39,7 +39,7 @@ export function SectionHeader({ eyebrow, title, description, actions }) {
 export function Pill({ tone = 'default', children }) {
   const tones = {
     default: 'border-gray-600 bg-gray-700/50 text-gray-200',
-    accent: 'border-blue-600/50 bg-blue-900/30 text-blue-200',
+    accent: 'border-gold-600/50 bg-gold-900/30 text-gold-200',
     success: 'border-green-600/50 bg-green-900/30 text-green-200',
     warning: 'border-yellow-600/50 bg-yellow-900/30 text-yellow-200',
     danger: 'border-red-600/50 bg-red-900/30 text-red-200',
@@ -66,13 +66,13 @@ export function Button({
 }) {
   const variants = {
     primary:
-      'bg-blue-600 text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900',
+      'bg-gold-500 text-slate-900 hover:bg-gold-600 focus:ring-2 focus:ring-gold-400 focus:ring-offset-2 focus:ring-offset-slate-900',
     secondary:
       'border-gray-600 bg-gray-700/50 text-gray-200 hover:bg-gray-700',
     ghost:
       'text-gray-300 hover:bg-gray-700/50 hover:text-white',
     danger:
-      'bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-gray-900',
+      'bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-slate-900',
   }
 
   return (
@@ -104,7 +104,7 @@ export function MetricCard({ label, value, hint }) {
 
 export function Alert({ tone = 'info', title, children, className = '' }) {
   const tones = {
-    info: 'border-blue-600/50 bg-blue-900/20 text-blue-100',
+    info: 'border-gold-600/50 bg-gold-900/20 text-gold-100',
     success: 'border-green-600/50 bg-green-900/20 text-green-100',
     warning: 'border-yellow-600/50 bg-yellow-900/20 text-yellow-100',
     danger: 'border-red-600/50 bg-red-900/20 text-red-100',
