@@ -1,7 +1,14 @@
 import { useState } from 'react'
 import { verifyCertificate } from '../api/client'
+import { Alert, Button, CodeBlock, Pill, SectionHeader, Surface } from '../components/ui'
 
-export default function Verify() {
+const CHECK_ITEMS = [
+  { key: 'hash_match', label: 'Chunk hashes match source text' },
+  { key: 'proof_valid', label: 'Merkle proofs recompute the manifest root' },
+  { key: 'signature_valid', label: 'Ed25519 signature validates against the public key' },
+]
+
+export default function Verify({ systemStatus }) {
   const [certificate, setCertificate] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
@@ -37,100 +44,163 @@ export default function Verify() {
     }
   }
 
+  const loadLastCertificate = () => {
+    const cached = window.localStorage.getItem('attest:last-certificate')
+    if (!cached) {
+      setError('No generated certificate is stored in this browser yet.')
+      return
+    }
+
+    setCertificate(cached)
+    setError(null)
+    setResult(null)
+  }
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    try {
+      const content = await file.text()
+      setCertificate(content)
+      setError(null)
+      setResult(null)
+    } catch {
+      setError('Unable to read the selected certificate file.')
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900">Verify Certificate</h2>
-        <p className="text-gray-600 mt-1">
-          Paste an AnswerCertificate JSON to verify its cryptographic integrity.
-        </p>
-      </div>
+      <Surface className="p-6 lg:p-8">
+        <SectionHeader
+          eyebrow="Independent Verification"
+          title="Prove the answer is grounded, untampered, and signed."
+          description="Paste or import any answer certificate, then validate its chunk hashes, Merkle proofs, and signature with the backend verifier."
+          actions={
+            <>
+              <Pill tone="accent">Server Verification</Pill>
+              <Pill tone={systemStatus?.capabilities?.verify ? 'success' : 'warning'}>
+                {systemStatus?.capabilities?.verify ? 'Verifier Online' : 'Verifier Offline'}
+              </Pill>
+            </>
+          }
+        />
 
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="certificate" className="block text-sm font-medium text-gray-700">
-            Certificate JSON
-          </label>
-          <textarea
-            id="certificate"
-            value={certificate}
-            onChange={(e) => setCertificate(e.target.value)}
-            rows={10}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-3 font-mono text-xs"
-            placeholder='{"certificate_id": "...", "query": "...", ...}'
-            required
-          />
-        </div>
-        <button
-          onClick={handleVerify}
-          disabled={loading}
-          className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-        >
-          {loading ? 'Verifying...' : 'Verify'}
-        </button>
-      </div>
-
-      {error && (
-        <div className="rounded-md bg-red-50 p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
+        <div className="mt-8 grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-white/10 bg-slate-950/40 p-5">
+              <label htmlFor="certificate" className="text-sm font-medium text-slate-200">
+                Certificate JSON
+              </label>
+              <textarea
+                id="certificate"
+                value={certificate}
+                onChange={(e) => setCertificate(e.target.value)}
+                rows={14}
+                className="mt-3 block w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 font-mono text-xs leading-6 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
+                placeholder='{"certificate_id": "...", "query": "...", ...}'
+                required
+              />
             </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Verification Failed</h3>
-              <p className="mt-1 text-sm text-red-700">{error}</p>
+
+            <div className="flex flex-wrap gap-3">
+              <Button onClick={handleVerify} disabled={loading}>
+                {loading ? 'Verifying certificate...' : 'Run Verification'}
+              </Button>
+              <Button variant="secondary" onClick={loadLastCertificate}>
+                Load Last Generated Certificate
+              </Button>
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/[0.12]">
+                Import JSON File
+                <input type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+              </label>
             </div>
           </div>
+
+          <div className="space-y-5">
+            <Surface className="p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Verification Pipeline
+              </p>
+              <div className="mt-4 space-y-3">
+                {CHECK_ITEMS.map((item, index) => (
+                  <div
+                    key={item.key}
+                    className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                  >
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-500">
+                      Step {index + 1}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-200">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+            </Surface>
+
+            <Surface className="p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Zero-Trust Option
+              </p>
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                For an offline workflow, export the certificate and run the standalone CLI verifier
+                against the public key.
+              </p>
+              <div className="mt-4">
+                <CodeBlock>
+                  python backend/verifier/verify.py --certificate cert.json --public-key
+                  {' '}backend/keys/public_key.pem
+                </CodeBlock>
+              </div>
+            </Surface>
+          </div>
         </div>
+      </Surface>
+
+      {error && (
+        <Alert tone="danger" title="Verification failed">
+          {error}
+        </Alert>
       )}
 
       {result && (
-        <div className="rounded-md bg-green-50 p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-green-800">Verification Result</h3>
-              <p className="mt-1 text-sm text-green-700">{result.reason}</p>
-            </div>
+        <Surface className="p-6 lg:p-8">
+          <div className="flex flex-wrap items-center gap-3">
+            <Pill tone="success">Certificate Valid</Pill>
+            <Pill tone="accent">All cryptographic checks passed</Pill>
           </div>
-          <div className="mt-4 space-y-2">
-            <div className="flex items-center text-sm">
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mr-2 ${result.hash_match ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                {result.hash_match ? '✓' : '✗'}
-              </span>
-              <span className="text-gray-700">Hash match</span>
-            </div>
-            <div className="flex items-center text-sm">
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mr-2 ${result.proof_valid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                {result.proof_valid ? '✓' : '✗'}
-              </span>
-              <span className="text-gray-700">Merkle proof valid</span>
-            </div>
-            <div className="flex items-center text-sm">
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mr-2 ${result.signature_valid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                {result.signature_valid ? '✓' : '✗'}
-              </span>
-              <span className="text-gray-700">Signature valid</span>
-            </div>
+          <h3 className="mt-5 text-2xl font-semibold text-white">Verification result</h3>
+          <p className="mt-3 text-sm leading-7 text-slate-300">{result.reason}</p>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
+            {CHECK_ITEMS.map((item) => {
+              const passed = result[item.key]
+              return (
+                <div
+                  key={item.key}
+                  className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"
+                >
+                  <Pill tone={passed ? 'success' : 'danger'}>{passed ? 'Passed' : 'Failed'}</Pill>
+                  <p className="mt-4 text-sm leading-6 text-slate-200">{item.label}</p>
+                </div>
+              )
+            })}
           </div>
-        </div>
+        </Surface>
       )}
 
-      <div className="bg-blue-50 p-4 rounded-md">
-        <h3 className="text-sm font-medium text-blue-800">Zero-Trust Verification</h3>
-        <p className="mt-1 text-sm text-blue-700">
-          For complete cryptographic verification without trusting the backend, use the standalone CLI:
-        </p>
-        <pre className="mt-2 bg-blue-100 p-2 rounded text-xs overflow-x-auto">
-          python backend/verifier/verify.py --certificate cert.json --public-key backend/keys/public_key.pem
-        </pre>
-      </div>
+      {certificate && (
+        <Surface className="p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+            Current Payload
+          </p>
+          <div className="mt-4">
+            <CodeBlock>{certificate}</CodeBlock>
+          </div>
+        </Surface>
+      )}
     </div>
   )
 }

@@ -34,9 +34,13 @@ class Settings(BaseSettings):
 
     groq_api_key: str = Field(description="Groq API key for LLM generation.")
     groq_model: str = "llama-3.3-70b-versatile"
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    openai_api_key: str = Field(description="OpenAI API key for embeddings.")
+    embedding_model: str = "text-embedding-3-small"
+    preview_embedding_label: str = "preview-lexical-v1"
     top_k: int = 3
     auto_ingest_on_startup: bool = True
+    hosted_preview_mode: bool = False
+    allow_mutating_operations: bool = True
     allowed_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",

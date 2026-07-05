@@ -6,12 +6,12 @@ import io
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.crypto import canonical_json_bytes, load_public_key, verify_signature, verify_merkle_proof, hash_text
-from app.ingest import ingest_corpus
+from app.ingest import ingest_corpus, seed_preview_manifest
 from app.models import (
     DocumentList,
     DocumentUploadResponse,
@@ -23,7 +23,7 @@ from app.models import (
     VerifyResult,
 )
 from app.monitor import IntegrityMonitor
-from app.query import retrieve_and_answer
+from app.query import retrieve_and_answer, retrieve_and_answer_preview
 from app.storage import ManifestStore
 from app.vectorstore import VectorStore
 
@@ -44,7 +44,10 @@ def ensure_manifest_store() -> ManifestStore:
         _manifest_store = ManifestStore()
 
     if _manifest is None:
+        settings = get_settings()
         latest_manifest = _manifest_store.get_latest_manifest()
+        if latest_manifest is None and settings.hosted_preview_mode:
+            latest_manifest = seed_preview_manifest(_manifest_store)
         if latest_manifest is not None:
             _manifest = latest_manifest.model_dump()
 
@@ -69,9 +72,11 @@ async def lifespan(app: FastAPI):
     logger.info("ATTEST starting up...")
     settings = get_settings()
 
-    _manifest_store = ManifestStore()
+    _manifest_store = ensure_manifest_store()
 
-    if settings.auto_ingest_on_startup:
+    if settings.hosted_preview_mode:
+        logger.info("Hosted preview mode enabled. Using lightweight corpus manifest.")
+    elif settings.auto_ingest_on_startup:
         try:
             _vector_store = VectorStore()
             logger.info(f"Ingesting corpus from {settings.resolve_path(settings.data_dir)}")
@@ -118,7 +123,21 @@ app.add_middleware(
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    return {"status": "ok", "manifest_loaded": _manifest is not None}
+    settings = get_settings()
+    preview_mode = settings.hosted_preview_mode
+    return {
+        "status": "ok",
+        "manifest_loaded": _manifest is not None,
+        "mode": "hosted-preview" if preview_mode else "full",
+        "capabilities": {
+            "query": True,
+            "verify": True,
+            "monitor": True,
+            "seed_ingest": (not preview_mode) and settings.allow_mutating_operations,
+            "document_upload": (not preview_mode) and settings.allow_mutating_operations,
+            "document_delete": (not preview_mode) and settings.allow_mutating_operations,
+        },
+    }
 
 
 @app.post("/ingest")
@@ -129,6 +148,13 @@ def trigger_ingest(request: IngestRequest) -> ManifestSummary:
     MVP: full re-ingest only. Single doc re-ingest is stretch.
     """
     global _manifest, _vector_store, _manifest_store
+    settings = get_settings()
+
+    if settings.hosted_preview_mode or not settings.allow_mutating_operations:
+        raise HTTPException(
+            status_code=503,
+            detail="Hosted preview disables seed ingestion to keep the demo stable on free hosting.",
+        )
 
     _manifest_store = ensure_manifest_store()
     _vector_store = ensure_vector_store()
@@ -153,17 +179,25 @@ def query_endpoint(request: QueryRequest) -> QueryResult:
     Query the RAG system and return answer with certificate.
     """
     try:
-        if _vector_store is None or _manifest_store is None:
-            return QueryResult(
-                ok=False,
-                answer=None,
-                certificate=None,
-                error="Vector store or manifest store not initialized. Ingest corpus first.",
-            )
+        settings = get_settings()
+        _manifest_store = ensure_manifest_store()
 
-        answer, error, certificate = retrieve_and_answer(
-            request.query, _vector_store, _manifest_store
-        )
+        if settings.hosted_preview_mode:
+            answer, error, certificate = retrieve_and_answer_preview(
+                request.query, _manifest_store
+            )
+        else:
+            if _vector_store is None or _manifest_store is None:
+                return QueryResult(
+                    ok=False,
+                    answer=None,
+                    certificate=None,
+                    error="Vector store or manifest store not initialized. Ingest corpus first.",
+                )
+
+            answer, error, certificate = retrieve_and_answer(
+                request.query, _vector_store, _manifest_store
+            )
 
         if error:
             return QueryResult(ok=False, answer=None, certificate=None, error=error)
@@ -408,11 +442,15 @@ async def upload_document(file: UploadFile = File(...)):
     The manifest is updated with the new document.
     """
     global _manifest, _vector_store, _manifest_store
+    settings = get_settings()
+
+    if settings.hosted_preview_mode or not settings.allow_mutating_operations:
+        return {
+            "error": "Hosted preview is read-only. Upload documents locally for the full ingestion workflow."
+        }
 
     _manifest_store = ensure_manifest_store()
     _vector_store = ensure_vector_store()
-
-    settings = get_settings()
     
     # Validate file type
     allowed_extensions = {".txt", ".md", ".pdf"}
@@ -485,12 +523,7 @@ async def upload_document(file: UploadFile = File(...)):
             _vector_store.delete_document(doc_id)
 
         # Add to vector store
-        if hasattr(_vector_store, "embed_texts"):
-            embeddings = _vector_store.embed_texts(chunks)
-        else:
-            from app.ingest import create_embeddings
-
-            embeddings = create_embeddings(chunks, settings.embedding_model)
+        embeddings = _vector_store.embed_texts(chunks)
         
         # Store in Chroma
         _vector_store.add_documents(
@@ -629,10 +662,16 @@ def delete_document(doc_id: str):
     This removes the document from the vector store and rebuilds the manifest.
     """
     global _vector_store, _manifest_store
+    settings = get_settings()
+
+    if settings.hosted_preview_mode or not settings.allow_mutating_operations:
+        return {
+            "error": "Hosted preview is read-only. Delete operations are disabled on the live demo."
+        }
 
     _manifest_store = ensure_manifest_store()
     _vector_store = ensure_vector_store()
-    
+
     manifest = _manifest_store.get_latest_manifest()
     if not manifest or doc_id not in manifest.doc_ids:
         return {"error": "Document not found"}

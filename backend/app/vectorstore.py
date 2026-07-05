@@ -1,28 +1,23 @@
-"""Chroma vector store with sentence-transformers embeddings."""
+"""Chroma vector store with OpenAI embeddings."""
 
 from __future__ import annotations
 
 from typing import Any
-from typing import TYPE_CHECKING
 
 from app.config import get_settings
 
-if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
-
 
 class VectorStore:
-    """ChromaDB wrapper with local sentence-transformers embeddings."""
+    """ChromaDB wrapper with OpenAI embeddings API."""
 
     def __init__(self, collection_name: str = "attest_chunks"):
         import chromadb
         from chromadb.config import Settings as ChromaSettings
-        from sentence_transformers import SentenceTransformer
+        from openai import OpenAI
 
         settings = get_settings()
-        self._embedding_model: SentenceTransformer = SentenceTransformer(
-            settings.embedding_model
-        )
+        self._openai_client = OpenAI(api_key=settings.openai_api_key)
+        self._embedding_model = settings.embedding_model
         self._chroma_path = settings.resolve_path(settings.chroma_path)
 
         # Keep Chroma on disk-backed storage to avoid duplicating the full index in RAM.
@@ -38,8 +33,12 @@ class VectorStore:
         )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a list of texts."""
-        return self._embedding_model.encode(texts, show_progress_bar=False).tolist()
+        """Generate embeddings for a list of texts using OpenAI API."""
+        response = self._openai_client.embeddings.create(
+            input=texts,
+            model=self._embedding_model
+        )
+        return [item.embedding for item in response.data]
 
     def add_chunks(
         self,
@@ -62,10 +61,7 @@ class VectorStore:
 
         Returns list of dicts with: id, text, metadata, distance.
         """
-        settings = get_settings()
-        query_embedding = self._embedding_model.encode(
-            [query_text], show_progress_bar=False
-        ).tolist()
+        query_embedding = self.embed_texts([query_text])
 
         results = self._collection.query(
             query_embeddings=query_embedding,

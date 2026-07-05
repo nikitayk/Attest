@@ -12,10 +12,16 @@ services:
         sync: false
       - key: ATTEST_GROQ_MODEL
         value: llama-3.3-70b-versatile
+      - key: ATTEST_OPENAI_API_KEY
+        sync: false
       - key: ATTEST_ALLOWED_ORIGINS
         sync: false
       - key: ATTEST_AUTO_INGEST_ON_STARTUP
+        value: "true"
+      - key: ATTEST_HOSTED_PREVIEW_MODE
         value: "false"
+      - key: ATTEST_ALLOW_MUTATING_OPERATIONS
+        value: "true"
       - key: ATTEST_CHROMA_PATH
         value: /tmp/chroma
       - key: ATTEST_MANIFEST_DB_PATH

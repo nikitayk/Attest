@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { getCorpusHealth, triggerMonitor, triggerIngest, uploadDocument, listDocuments, deleteDocument } from '../api/client'
+import { Alert, Button, CodeBlock, EmptyState, Pill, SectionHeader, Surface } from '../components/ui'
 
-export default function CorpusHealth() {
+export default function CorpusHealth({ systemStatus }) {
   const [health, setHealth] = useState(null)
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(false)
@@ -12,6 +13,8 @@ export default function CorpusHealth() {
   const [uploadError, setUploadError] = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
   const [monitorStatus, setMonitorStatus] = useState(null)
+
+  const isPreview = systemStatus?.mode === 'hosted-preview'
 
   const fetchHealth = async () => {
     setLoading(true)
@@ -142,214 +145,212 @@ export default function CorpusHealth() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Corpus Health</h2>
-          <p className="text-gray-600 mt-1">
-            Monitor document integrity and quarantine status.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleIngest}
-            disabled={ingesting}
-            className="inline-flex justify-center rounded-md border border-transparent bg-amber-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50"
-          >
+      <Surface className="p-6 lg:p-8">
+        <SectionHeader
+          eyebrow="Corpus Integrity"
+          title="Monitor document health and quarantine status."
+          description="Track cryptographic integrity, run integrity checks, and manage document ingestion. The hosted preview uses a pre-built corpus for stability."
+          actions={
+            <>
+              <Pill tone={isPreview ? 'warning' : 'success'}>
+                {isPreview ? 'Preview Mode' : 'Full Runtime'}
+              </Pill>
+              <Pill tone="accent">Cryptographic Monitoring</Pill>
+            </>
+          }
+        />
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Button onClick={handleIngest} disabled={ingesting || isPreview}>
             {ingesting ? 'Ingesting...' : 'Ingest Seed Data'}
-          </button>
-          <button
-            onClick={handleRunMonitor}
-            disabled={monitoring}
-            className="inline-flex justify-center rounded-md border border-transparent bg-emerald-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50"
-          >
-            {monitoring ? 'Checking...' : 'Check Now'}
-          </button>
-          <button
-            onClick={fetchHealth}
-            disabled={loading}
-            className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-          >
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
+          </Button>
+          <Button variant="secondary" onClick={handleRunMonitor} disabled={monitoring}>
+            {monitoring ? 'Checking...' : 'Run Integrity Check'}
+          </Button>
+          <Button variant="ghost" onClick={fetchHealth} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh Status'}
+          </Button>
         </div>
-      </div>
+
+        {isPreview && (
+          <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-100">
+            <strong>Preview mode:</strong> Seed ingestion and document uploads are disabled on the hosted deployment to ensure stability on free hosting.
+          </div>
+        )}
+      </Surface>
 
       {error && (
-        <div className="rounded-md bg-red-50 p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Error</h3>
-              <p className="mt-1 text-sm text-red-700">{error}</p>
-            </div>
-          </div>
-        </div>
+        <Alert tone="danger" title="Operation failed">
+          {error}
+        </Alert>
       )}
 
       {monitorStatus && !error && (
-        <div className="rounded-md bg-blue-50 p-4">
-          <h3 className="text-sm font-medium text-blue-900">Last Integrity Check</h3>
-          <p className="mt-1 text-sm text-blue-700">
-            Checked {monitorStatus.docs_checked} documents at{' '}
-            {monitorStatus.last_run ? new Date(monitorStatus.last_run).toLocaleString() : 'unknown time'}.
+        <Surface className="p-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <Pill tone="success">Integrity Check Complete</Pill>
+            <Pill>{monitorStatus.docs_checked} documents checked</Pill>
+          </div>
+          <h3 className="mt-5 text-2xl font-semibold text-white">Last scan results</h3>
+          <p className="mt-3 text-sm leading-7 text-slate-300">
+            Checked at {monitorStatus.last_run ? new Date(monitorStatus.last_run).toLocaleString() : 'unknown time'}.
             {monitorStatus.quarantined_count === 0
               ? ' No mismatches detected.'
               : ` Quarantined ${monitorStatus.quarantined_count} document(s): ${monitorStatus.mismatches.join(', ')}`}
           </p>
-        </div>
+        </Surface>
       )}
 
       {health && (
-        <div className="space-y-4">
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="px-4 py-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg leading-6 font-medium text-gray-900">
-                  Document Status
-                </h3>
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  health.quarantined_count === 0
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  {health.quarantined_count === 0 ? 'All OK' : `${health.quarantined_count} Quarantined`}
-                </span>
-              </div>
+        <Surface className="p-6 lg:p-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Document Status
+              </p>
+              <h3 className="mt-2 text-2xl font-semibold text-white">Corpus overview</h3>
             </div>
-            <ul className="divide-y divide-gray-200">
-              {health.documents.map((doc) => (
-                <li key={doc.doc_id} className="px-4 py-4 sm:px-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className={`flex-shrink-0 h-2 w-2 rounded-full ${
-                        doc.status === 'OK' ? 'bg-green-500' : 'bg-red-500'
-                      }`} />
-                      <p className="ml-3 text-sm font-medium text-gray-900">
-                        {doc.doc_id}
-                      </p>
-                    </div>
-                    <div className="ml-4 flex items-center">
-                      <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                        doc.status === 'OK'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {doc.status}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-2 sm:flex sm:justify-between">
-                    <div className="sm:flex">
-                      <p className="flex items-center text-sm text-gray-500">
-                        <span className="truncate">Hash: {doc.doc_hash.substring(0, 16)}...</span>
-                      </p>
-                    </div>
-                    <div className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                      <p>
-                        Last checked: {doc.last_checked ? new Date(doc.last_checked).toLocaleString() : 'Never'}
-                      </p>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <Pill tone={health.quarantined_count === 0 ? 'success' : 'danger'}>
+              {health.quarantined_count === 0 ? 'All OK' : `${health.quarantined_count} Quarantined`}
+            </Pill>
           </div>
-        </div>
+
+          <div className="mt-6 space-y-4">
+            {health.documents.map((doc) => (
+              <div
+                key={doc.doc_id}
+                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-2 w-2 rounded-full ${
+                      doc.status === 'OK' ? 'bg-emerald-400' : 'bg-rose-400'
+                    }`} />
+                    <p className="text-sm font-medium text-white">{doc.doc_id}</p>
+                  </div>
+                  <Pill tone={doc.status === 'OK' ? 'success' : 'danger'}>
+                    {doc.status}
+                  </Pill>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Document hash</p>
+                    <p className="mt-2 font-mono text-sm text-slate-300">{doc.doc_hash.substring(0, 32)}...</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Last checked</p>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {doc.last_checked ? new Date(doc.last_checked).toLocaleString() : 'Never'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
       )}
 
       {!health && !loading && !error && (
-        <div className="text-center py-12">
-          <p className="text-gray-500">No corpus health data available</p>
-        </div>
+        <EmptyState
+          title="No corpus health data"
+          description="Run an integrity check or refresh to load the current corpus status."
+        />
       )}
 
-      {/* Document Upload Section */}
-      <div className="bg-white shadow rounded-lg p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Upload Document</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select file (.txt, .md, .pdf)
-            </label>
-            <input
-              type="file"
-              onChange={handleFileSelect}
-              accept=".txt,.md,.pdf"
-              className="block w-full text-sm text-gray-500
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-md file:border-0
-                file:text-sm file:font-semibold
-                file:bg-blue-50 file:text-blue-700
-                hover:file:bg-blue-100"
-            />
-          </div>
-          {selectedFile && (
-            <p className="text-sm text-gray-600">
-              Selected: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(2)} KB)
-            </p>
-          )}
-          {uploadError && (
-            <div className="rounded-md bg-red-50 p-3">
-              <p className="text-sm text-red-700">{uploadError}</p>
+      {!isPreview && (
+        <>
+          <Surface className="p-6 lg:p-8">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  Document Upload
+                </p>
+                <h3 className="mt-2 text-2xl font-semibold text-white">Add to corpus</h3>
+              </div>
             </div>
-          )}
-          <button
-            onClick={handleUpload}
-            disabled={!selectedFile || uploading}
-            className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-          >
-            {uploading ? 'Uploading...' : 'Upload Document'}
-          </button>
-        </div>
-      </div>
 
-      {/* Document List Section */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">
-            Documents ({documents.length})
-          </h3>
-        </div>
-        {documents.length === 0 ? (
-          <div className="px-4 py-8 text-center text-gray-500">
-            No documents uploaded yet
-          </div>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {documents.map((doc) => (
-              <li key={doc.doc_id} className="px-4 py-4 sm:px-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {doc.filename}
-                    </p>
-                    <p className="mt-1 flex items-center text-sm text-gray-500">
-                      <span className="truncate">ID: {doc.doc_id}</span>
-                      <span className="mx-2">•</span>
-                      <span>{doc.chunk_count} chunks</span>
-                    </p>
-                    <p className="mt-1 text-xs text-gray-400">
-                      Hash: {doc.doc_hash.substring(0, 32)}...
-                    </p>
-                  </div>
-                  <div className="ml-4 flex-shrink-0">
-                    <button
-                      onClick={() => handleDelete(doc.doc_id)}
-                      className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                    >
-                      Delete
-                    </button>
-                  </div>
+            <div className="mt-6 space-y-5">
+              <div className="rounded-3xl border border-white/10 bg-slate-950/40 p-5">
+                <label htmlFor="file-upload" className="text-sm font-medium text-slate-200">
+                  Select file (.txt, .md, .pdf)
+                </label>
+                <input
+                  id="file-upload"
+                  type="file"
+                  onChange={handleFileSelect}
+                  accept=".txt,.md,.pdf"
+                  className="mt-3 block w-full text-sm text-slate-300 file:mr-4 file:py-2.5 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-medium file:bg-cyan-300/12 file:text-cyan-100 hover:file:bg-cyan-300/20"
+                />
+              </div>
+
+              {selectedFile && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm text-slate-200">
+                    Selected: <span className="font-medium">{selectedFile.name}</span> ({(selectedFile.size / 1024).toFixed(2)} KB)
+                  </p>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              )}
+
+              {uploadError && (
+                <Alert tone="danger" title="Upload error">
+                  {uploadError}
+                </Alert>
+              )}
+
+              <Button onClick={handleUpload} disabled={!selectedFile || uploading}>
+                {uploading ? 'Uploading...' : 'Upload Document'}
+              </Button>
+            </div>
+          </Surface>
+
+          <Surface className="p-6 lg:p-8">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  Document Library
+                </p>
+                <h3 className="mt-2 text-2xl font-semibold text-white">Uploaded documents ({documents.length})</h3>
+              </div>
+            </div>
+
+            {documents.length === 0 ? (
+              <EmptyState
+                title="No documents yet"
+                description="Upload documents to build your corpus."
+              />
+            ) : (
+              <div className="mt-6 space-y-4">
+                {documents.map((doc) => (
+                  <div
+                    key={doc.doc_id}
+                    className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{doc.filename}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-400">
+                          <span>ID: {doc.doc_id}</span>
+                          <span>•</span>
+                          <span>{doc.chunk_count} chunks</span>
+                        </div>
+                        <p className="mt-2 font-mono text-xs text-slate-500">
+                          Hash: {doc.doc_hash.substring(0, 32)}...
+                        </p>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleDelete(doc.doc_id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Surface>
+        </>
+      )}
     </div>
   )
 }

@@ -52,6 +52,67 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
+def build_signed_manifest_from_dir(
+    data_dir: Path | None = None,
+    *,
+    embedding_model: str | None = None,
+) -> Manifest:
+    """Build and sign a manifest from the source corpus without creating embeddings."""
+    settings = get_settings()
+    if data_dir is None:
+        data_dir = settings.resolve_path(settings.data_dir)
+
+    doc_files = sorted(data_dir.glob("*.md")) + sorted(data_dir.glob("*.txt"))
+    if not doc_files:
+        raise ValueError(f"No .md or .txt files found in {data_dir}")
+
+    all_chunks: list[ChunkRecord] = []
+    document_hashes: dict[str, str] = {}
+
+    for doc_path in doc_files:
+        doc_id = doc_path.stem
+        text = doc_path.read_text(encoding="utf-8")
+        document_hashes[doc_id] = hash_bytes(text.encode("utf-8"))
+
+        chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
+        for idx, chunk in enumerate(chunks):
+            all_chunks.append(
+                ChunkRecord(
+                    doc_id=doc_id,
+                    chunk_index=idx,
+                    hash=hash_text(chunk),
+                )
+            )
+
+    manifest_dict = {
+        "manifest_id": str(uuid.uuid4()),
+        "doc_ids": sorted(document_hashes.keys()),
+        "chunks": [c.model_dump() for c in all_chunks],
+        "merkle_root": build_merkle_tree([c.hash for c in all_chunks]).root,
+        "document_hashes": document_hashes,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "embedding_model": embedding_model or settings.embedding_model,
+        "chunk_size": settings.chunk_size,
+        "chunk_overlap": settings.chunk_overlap,
+    }
+
+    private_key = load_private_key(settings.signing_key_pem.encode("utf-8"))
+    manifest_dict["signature"] = sign_bytes(
+        canonical_json_bytes(manifest_dict), private_key
+    )
+    return Manifest(**manifest_dict)
+
+
+def seed_preview_manifest(manifest_store: ManifestStore) -> Manifest:
+    """Persist a lightweight manifest for hosted preview mode."""
+    settings = get_settings()
+    manifest = build_signed_manifest_from_dir(
+        embedding_model=settings.preview_embedding_label
+    )
+    manifest_store.store_manifest(manifest)
+    return manifest
+
+
 def ingest_corpus(
     data_dir: Path | None = None,
     vector_store: VectorStore | None = None,
@@ -143,14 +204,17 @@ def ingest_corpus(
 
 def create_embeddings(texts: list[str], model_name: str) -> list[list[float]]:
     """
-    Generate embeddings for a list of texts using sentence-transformers.
+    Generate embeddings for a list of texts using OpenAI API.
 
     Kept as a compatibility helper for tests and any callers outside the upload path.
     """
-    from sentence_transformers import SentenceTransformer
+    from openai import OpenAI
+    from app.config import get_settings
 
-    model = SentenceTransformer(model_name)
-    return model.encode(texts, show_progress_bar=False).tolist()
+    settings = get_settings()
+    client = OpenAI(api_key=settings.openai_api_key)
+    response = client.embeddings.create(input=texts, model=model_name)
+    return [item.embedding for item in response.data]
 
 
 def ingest_single_document(
