@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: attest-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ATTEST_SIGNING_KEY_PEM
+        sync: false
+      - key: ATTEST_GROQ_API_KEY
+        sync: false
+      - key: ATTEST_GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: ATTEST_ALLOWED_ORIGINS
+        sync: false
