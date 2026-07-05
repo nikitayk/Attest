@@ -191,7 +191,7 @@ export default function PipelineDiagram() {
               }`}
               style={{ whiteSpace: 'normal' }}
             >
-              <p className="text-xs font-medium text-green-400 leading-tight">✓ Generate+Certify</p>
+              <p className="text-xs font-medium text-green-400 leading-tight">✓ Certify</p>
             </div>
           </foreignObject>
         </g>
