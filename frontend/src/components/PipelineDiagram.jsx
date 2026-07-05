@@ -182,15 +182,16 @@ export default function PipelineDiagram() {
 
         {/* Certify node */}
         <g transform="translate(800, 115)">
-          <foreignObject width="100" height="50">
+          <foreignObject width="120" height="50">
             <div
               className={`bg-slate-800 border rounded-md p-3 text-center transition-all duration-300 ${
                 showGlow === 'certify'
                   ? 'border-green-500 shadow-lg shadow-green-500/50'
                   : 'border-green-600/50'
               }`}
+              style={{ whiteSpace: 'normal' }}
             >
-              <p className="text-xs font-medium text-green-400">✓ Generate+Certify</p>
+              <p className="text-xs font-medium text-green-400 leading-tight">✓ Generate+Certify</p>
             </div>
           </foreignObject>
         </g>
