@@ -74,7 +74,7 @@ export default function Verify({ systemStatus }) {
 
   return (
     <div className="space-y-6">
-      <Surface className="p-6 lg:p-8">
+      <Surface className="p-6">
         <SectionHeader
           eyebrow="Independent Verification"
           title="Prove the answer is grounded, untampered, and signed."
@@ -89,10 +89,10 @@ export default function Verify({ systemStatus }) {
           }
         />
 
-        <div className="mt-8 grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
-          <div className="space-y-5">
-            <div className="rounded-3xl border border-white/10 bg-slate-950/40 p-5">
-              <label htmlFor="certificate" className="text-sm font-medium text-slate-200">
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="certificate" className="block text-sm font-medium text-gray-300">
                 Certificate JSON
               </label>
               <textarea
@@ -100,55 +100,55 @@ export default function Verify({ systemStatus }) {
                 value={certificate}
                 onChange={(e) => setCertificate(e.target.value)}
                 rows={14}
-                className="mt-3 block w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 font-mono text-xs leading-6 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
+                className="mt-2 block w-full rounded-md border border-gray-600 bg-gray-800 px-3 py-2 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder='{"certificate_id": "...", "query": "...", ...}'
                 required
               />
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex gap-3">
               <Button onClick={handleVerify} disabled={loading}>
                 {loading ? 'Verifying certificate...' : 'Run Verification'}
               </Button>
               <Button variant="secondary" onClick={loadLastCertificate}>
                 Load Last Generated Certificate
               </Button>
-              <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/[0.12]">
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-gray-600 bg-gray-700/50 px-4 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700">
                 Import JSON File
                 <input type="file" accept=".json" className="hidden" onChange={handleImportFile} />
               </label>
             </div>
           </div>
 
-          <div className="space-y-5">
-            <Surface className="p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+          <div className="space-y-4">
+            <Surface className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
                 Verification Pipeline
               </p>
-              <div className="mt-4 space-y-3">
+              <div className="mt-3 space-y-2">
                 {CHECK_ITEMS.map((item, index) => (
                   <div
                     key={item.key}
-                    className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                    className="rounded-md border border-gray-600 bg-gray-700/30 p-3"
                   >
-                    <p className="text-xs uppercase tracking-[0.22em] text-slate-500">
+                    <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
                       Step {index + 1}
                     </p>
-                    <p className="mt-2 text-sm text-slate-200">{item.label}</p>
+                    <p className="mt-1 text-sm text-gray-200">{item.label}</p>
                   </div>
                 ))}
               </div>
             </Surface>
 
-            <Surface className="p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+            <Surface className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
                 Zero-Trust Option
               </p>
-              <p className="mt-3 text-sm leading-6 text-slate-300">
+              <p className="mt-2 text-sm text-gray-300">
                 For an offline workflow, export the certificate and run the standalone CLI verifier
                 against the public key.
               </p>
-              <div className="mt-4">
+              <div className="mt-3">
                 <CodeBlock>
                   python backend/verifier/verify.py --certificate cert.json --public-key
                   {' '}backend/keys/public_key.pem
@@ -166,24 +166,24 @@ export default function Verify({ systemStatus }) {
       )}
 
       {result && (
-        <Surface className="p-6 lg:p-8">
-          <div className="flex flex-wrap items-center gap-3">
+        <Surface className="p-6">
+          <div className="flex flex-wrap items-center gap-2">
             <Pill tone="success">Certificate Valid</Pill>
             <Pill tone="accent">All cryptographic checks passed</Pill>
           </div>
-          <h3 className="mt-5 text-2xl font-semibold text-white">Verification result</h3>
-          <p className="mt-3 text-sm leading-7 text-slate-300">{result.reason}</p>
+          <h3 className="mt-4 text-xl font-semibold text-white">Verification result</h3>
+          <p className="mt-2 text-sm text-gray-300">{result.reason}</p>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
             {CHECK_ITEMS.map((item) => {
               const passed = result[item.key]
               return (
                 <div
                   key={item.key}
-                  className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"
+                  className="rounded-md border border-gray-600 bg-gray-700/30 p-4"
                 >
                   <Pill tone={passed ? 'success' : 'danger'}>{passed ? 'Passed' : 'Failed'}</Pill>
-                  <p className="mt-4 text-sm leading-6 text-slate-200">{item.label}</p>
+                  <p className="mt-2 text-sm text-gray-200">{item.label}</p>
                 </div>
               )
             })}
@@ -193,10 +193,10 @@ export default function Verify({ systemStatus }) {
 
       {certificate && (
         <Surface className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+          <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
             Current Payload
           </p>
-          <div className="mt-4">
+          <div className="mt-3">
             <CodeBlock>{certificate}</CodeBlock>
           </div>
         </Surface>

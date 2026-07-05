@@ -43,7 +43,7 @@ export default function Ask({ systemStatus }) {
 
   return (
     <div className="space-y-6">
-      <Surface className="p-6 lg:p-8">
+      <Surface className="p-6">
         <SectionHeader
           eyebrow="Grounded Answers"
           title="Ask the corpus and keep the proof attached."
@@ -58,10 +58,10 @@ export default function Ask({ systemStatus }) {
           }
         />
 
-        <div className="mt-8 grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="rounded-3xl border border-white/10 bg-slate-950/40 p-5">
-              <label htmlFor="query" className="text-sm font-medium text-slate-200">
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="query" className="block text-sm font-medium text-gray-300">
                 Your question
               </label>
               <textarea
@@ -69,13 +69,13 @@ export default function Ask({ systemStatus }) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 rows={6}
-                className="mt-3 block w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-white shadow-inner outline-none transition placeholder:text-slate-500 focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
+                className="mt-2 block w-full rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="Ask a policy, incident, onboarding, or security question."
                 required
               />
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex gap-3">
               <Button type="submit" disabled={loading}>
                 {loading ? 'Generating answer...' : 'Generate Verified Answer'}
               </Button>
@@ -93,23 +93,23 @@ export default function Ask({ systemStatus }) {
             </div>
           </form>
 
-          <Surface className="p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+          <Surface className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
               Suggested prompts
             </p>
-            <div className="mt-4 space-y-3">
+            <div className="mt-3 space-y-2">
               {EXAMPLE_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
                   type="button"
                   onClick={() => setQuery(prompt)}
-                  className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left text-sm text-slate-200 transition hover:border-cyan-300/20 hover:bg-cyan-300/8 hover:text-white"
+                  className="w-full rounded-md border border-gray-600 bg-gray-700/50 p-3 text-left text-sm text-gray-200 hover:bg-gray-700 hover:text-white"
                 >
                   {prompt}
                 </button>
               ))}
             </div>
-            <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-slate-300">
+            <div className="mt-4 rounded-md border border-gray-600 bg-gray-700/30 p-3 text-sm text-gray-300">
               {isPreview ? (
                 <>
                   The hosted site uses lightweight lexical retrieval over the checked-in demo corpus
@@ -140,33 +140,33 @@ export default function Ask({ systemStatus }) {
       )}
 
       {result && (
-        <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-          <Surface className="p-6 lg:p-7">
-            <div className="flex flex-wrap items-center gap-3">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Surface className="p-6">
+            <div className="flex flex-wrap items-center gap-2">
               <Pill tone="success">Answer Generated</Pill>
               {result.certificate?.doc_id ? <Pill>{result.certificate.doc_id}</Pill> : null}
             </div>
-            <h3 className="mt-5 text-2xl font-semibold text-white">Response</h3>
-            <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-200">
+            <h3 className="mt-4 text-xl font-semibold text-white">Response</h3>
+            <p className="mt-3 whitespace-pre-wrap text-sm text-gray-300">
               {result.answer}
             </p>
 
             {result.certificate && (
-              <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Certificate</p>
-                  <p className="mt-3 text-sm text-white">{result.certificate.certificate_id}</p>
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-md border border-gray-600 bg-gray-700/30 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Certificate</p>
+                  <p className="mt-2 text-sm text-white">{result.certificate.certificate_id}</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Merkle Root</p>
-                  <p className="mt-3 break-all text-sm text-white">{result.certificate.merkle_root}</p>
+                <div className="rounded-md border border-gray-600 bg-gray-700/30 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Merkle Root</p>
+                  <p className="mt-2 break-all text-sm text-white">{result.certificate.merkle_root}</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Model Stack</p>
-                  <p className="mt-3 text-sm text-white">
+                <div className="rounded-md border border-gray-600 bg-gray-700/30 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Model Stack</p>
+                  <p className="mt-2 text-sm text-white">
                     {result.certificate.embedding_model}
                     <br />
-                    <span className="text-slate-400">{result.certificate.llm_model}</span>
+                    <span className="text-gray-400">{result.certificate.llm_model}</span>
                   </p>
                 </div>
               </div>
@@ -177,25 +177,25 @@ export default function Ask({ systemStatus }) {
             <Surface className="p-6">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
                     Source Evidence
                   </p>
-                  <h3 className="mt-2 text-xl font-semibold text-white">Retrieved chunks</h3>
+                  <h3 className="mt-2 text-lg font-semibold text-white">Retrieved chunks</h3>
                 </div>
                 <Pill tone="accent">{sources.length} cited</Pill>
               </div>
 
-              <div className="mt-5 space-y-4">
+              <div className="mt-4 space-y-3">
                 {sources.map((chunk) => (
                   <div
                     key={`${chunk.doc_id}-${chunk.chunk_index}`}
-                    className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                    className="rounded-md border border-gray-600 bg-gray-700/30 p-4"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <Pill>{chunk.doc_id}</Pill>
                       <Pill tone="accent">Chunk {chunk.chunk_index}</Pill>
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-300">{chunk.text}</p>
+                    <p className="mt-2 text-sm text-gray-300">{chunk.text}</p>
                   </div>
                 ))}
               </div>
@@ -205,10 +205,10 @@ export default function Ask({ systemStatus }) {
               <Surface className="p-6">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                    <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
                       Certificate Payload
                     </p>
-                    <h3 className="mt-2 text-xl font-semibold text-white">Portable proof</h3>
+                    <h3 className="mt-2 text-lg font-semibold text-white">Portable proof</h3>
                   </div>
                   <Button
                     variant="secondary"
@@ -222,7 +222,7 @@ export default function Ask({ systemStatus }) {
                     Copy JSON
                   </Button>
                 </div>
-                <div className="mt-5">
+                <div className="mt-4">
                   <CodeBlock>{JSON.stringify(result.certificate, null, 2)}</CodeBlock>
                 </div>
               </Surface>
