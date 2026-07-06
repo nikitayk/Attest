@@ -38,15 +38,6 @@ logger = logging.getLogger(__name__)
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
-app = FastAPI(
-    title="ATTEST API",
-    description="Cryptographic chain of custody for RAG answers",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Performance metrics
 performance_metrics: Dict[str, list] = {
@@ -97,17 +88,7 @@ async def lifespan(app: FastAPI):
     logger.info("ATTEST starting up...")
     settings = get_settings()
 
-    # Configure CORS from settings
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
     _manifest_store = ManifestStore()
-    _vector_store = VectorStore()
 
     if settings.hosted_preview_mode:
         logger.info("Hosted preview mode enabled. Using lightweight corpus manifest.")
@@ -118,6 +99,7 @@ async def lifespan(app: FastAPI):
             _manifest = latest_manifest.model_dump()
     elif settings.auto_ingest_on_startup:
         try:
+            _vector_store = VectorStore()
             # Check if corpus already persisted
             doc_count = await _manifest_store.get_document_count()
             
@@ -163,6 +145,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS configuration — keep local dev working while allowing a locked-down deploy.
 app.add_middleware(
