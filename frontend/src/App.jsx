@@ -10,6 +10,8 @@ function App() {
   const [currentPage, setCurrentPage] = useState('hero') // 'hero', 'ask', 'verify', 'corpus'
   const [systemStatus, setSystemStatus] = useState(null)
   const [statusError, setStatusError] = useState(null)
+  const [demoTab, setDemoTab] = useState('ask')
+  const [corpusTab, setCorpusTab] = useState('demo')
 
   useEffect(() => {
     const loadStatus = async () => {
@@ -32,6 +34,10 @@ function App() {
     } else {
       setCurrentPage(page)
     }
+  }
+
+  const scrollToSection = (id) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
   }
 
   if (currentPage !== 'hero') {
@@ -103,6 +109,8 @@ function App() {
           <div className="flex items-center justify-between">
             <div className="text-2xl font-bold text-gold-400">ATTEST</div>
             <div className="flex items-center gap-6">
+              <button onClick={() => scrollToSection('problem')} className="text-sm text-gray-300 hover:text-white transition-colors">How it works</button>
+              <button onClick={() => scrollToSection('demo')} className="text-sm text-gray-300 hover:text-white transition-colors">Try it</button>
               <a
                 href="https://github.com/nikitayk/Attest"
                 target="_blank"
@@ -123,73 +131,154 @@ function App() {
         </div>
       </nav>
 
-      {/* Hero Section */}
+      {/* Hero Section (Simplified) */}
       <section className="py-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 text-center">
           <div className="space-y-8">
-            <div className="flex flex-wrap items-center justify-center gap-2 hero-stagger-1">
-              <Pill tone="accent">🔏 Don't trust the citation. Verify the proof.</Pill>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Pill tone="accent">🔏 Don't Trust. Verify.</Pill>
+              <Pill tone="neutral">CRYPTOGRAPHIC PROVENANCE · RAG INTEGRITY</Pill>
             </div>
 
-            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-bold text-white hero-stagger-2">
-              ATTEST
+            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white">
+              RAG answers that carry their own proof.
             </h1>
 
-            <p className="max-w-3xl mx-auto text-xl text-gray-400 hero-stagger-3">
-              Signed, hashed, Merkle-proofed — RAG you don't have to take on faith.
+            <p className="max-w-3xl mx-auto text-xl text-gray-400">
+              ATTEST hashes every source chunk into a Merkle tree, signs the manifest with Ed25519, and re-checks it before every answer — so a poisoned document gets quarantined, not cited. Any certificate can be verified offline, by anyone, without trusting my backend.
             </p>
 
-            {/* Feature Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
-              <Surface
-                className="p-8 text-left cursor-pointer hover:border-gold-400 transition-all duration-200"
-                onClick={() => navigateTo('ask')}
-              >
-                <div className="text-4xl mb-4">❓</div>
-                <h3 className="text-2xl font-semibold text-white mb-2">Ask</h3>
-                <p className="text-gray-400">
-                  Query the corpus and get answers with verifiable cryptographic certificates.
-                </p>
-              </Surface>
+            <div className="flex flex-wrap items-center justify-center gap-4">
+              <Button variant="primary" onClick={() => scrollToSection('demo')}>
+                Try the Demo →
+              </Button>
+              <Button variant="secondary" onClick={() => window.open('https://github.com/nikitayk/Attest/blob/main/backend/verifier/verify.py', '_blank')}>
+                Read the Verifier Source ↗
+              </Button>
+            </div>
 
-              <Surface
-                className="p-8 text-left cursor-pointer hover:border-gold-400 transition-all duration-200"
-                onClick={() => navigateTo('verify')}
-              >
-                <div className="text-4xl mb-4">✓</div>
-                <h3 className="text-2xl font-semibold text-white mb-2">Verify</h3>
-                <p className="text-gray-400">
-                  Verify certificates without trusting the backend — zero-trust proof.
-                </p>
-              </Surface>
+            <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
+              <span className="text-sm text-gray-500">SHA-256 + Merkle + Ed25519</span>
+              <span className="text-gray-700">·</span>
+              <span className="text-sm text-gray-500">Fail-closed on tamper</span>
+              <span className="text-gray-700">·</span>
+              <span className="text-sm text-gray-500">Offline zero-trust verifier</span>
+              <span className="text-gray-700">·</span>
+              <span className="text-sm text-gray-500">Self-contained certificates</span>
+            </div>
 
-              <Surface
-                className="p-8 text-left cursor-pointer hover:border-gold-400 transition-all duration-200"
-                onClick={() => navigateTo('corpus')}
-              >
-                <div className="text-4xl mb-4">📁</div>
-                <h3 className="text-2xl font-semibold text-white mb-2">Corpus</h3>
-                <p className="text-gray-400">
-                  Monitor corpus health and see tampering detection in action.
-                </p>
-              </Surface>
+            <div className="pt-4">
+              <a href="https://nikitayk.github.io/SENTINEL" target="_blank" rel="noopener noreferrer" className="text-sm text-gold-400 hover:text-gold-300 transition-colors">
+                Sibling project: SENTINEL — secures what goes in →
+              </a>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Pipeline Diagram */}
-      <section className="py-16 bg-slate-800">
+      {/* 01 - THE PROBLEM */}
+      <section id="problem" className="py-16">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
+          <div className="mb-12">
             <p className="text-sm font-semibold uppercase tracking-wider text-gold-400 mb-4">
-              How it works
+              01 · THE PROBLEM
             </p>
             <h2 className="text-3xl font-semibold text-white">
-              Cryptographic Chain of Custody
+              RAG cites sources. It can't prove they're real.
+            </h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Surface className="p-8">
+              <h3 className="text-2xl font-semibold text-white mb-3">Poisoning</h3>
+              <p className="text-gray-400">Documents can be altered after ingestion, changing answers without detection.</p>
+            </Surface>
+            <Surface className="p-8">
+              <h3 className="text-2xl font-semibold text-white mb-3">Staleness</h3>
+              <p className="text-gray-400">Citations don't prove the document existed at a specific point in time.</p>
+            </Surface>
+            <Surface className="p-8">
+              <h3 className="text-2xl font-semibold text-white mb-3">Blind Trust</h3>
+              <p className="text-gray-400">Third parties can't verify without trusting your backend or logs.</p>
+            </Surface>
+          </div>
+
+          <div className="mt-10 flex items-center gap-3">
+            <Pill tone="accent">OWASP AI06</Pill>
+            <span className="text-gray-400">— Memory & Context Poisoning</span>
+          </div>
+        </div>
+      </section>
+
+      {/* 02 - HOW IT WORKS */}
+      <section id="how-it-works" className="py-16 bg-slate-800">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <div className="mb-12">
+            <p className="text-sm font-semibold uppercase tracking-wider text-gold-400 mb-4">
+              02 · HOW IT WORKS
+            </p>
+            <h2 className="text-3xl font-semibold text-white">
+              Cryptographic chain of custody
             </h2>
           </div>
           <PipelineDiagram />
+        </div>
+      </section>
+
+      {/* 03 - TRY IT */}
+      <section id="demo" className="py-16">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <div className="mb-12">
+            <p className="text-sm font-semibold uppercase tracking-wider text-gold-400 mb-4">
+              03 · TRY IT
+            </p>
+            <h2 className="text-3xl font-semibold text-white mb-6">
+              Interactive demo
+            </h2>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCorpusTab('demo')}
+                className={cx(
+                  "px-4 py-2 text-sm rounded-md transition-colors",
+                  corpusTab === 'demo' ? "bg-gold-500 text-slate-900" : "bg-slate-800 text-gray-300 hover:bg-slate-700"
+                )}
+              >
+                Demo Corpus
+              </button>
+              <button
+                onClick={() => setCorpusTab('your')}
+                className={cx(
+                  "px-4 py-2 text-sm rounded-md transition-colors",
+                  corpusTab === 'your' ? "bg-gold-500 text-slate-900" : "bg-slate-800 text-gray-300 hover:bg-slate-700"
+                )}
+              >
+                Your Documents (coming soon)
+              </button>
+            </div>
+          </div>
+
+          <div className="flex gap-1 mb-6 border-b border-slate-700">
+            {['ask', 'verify', 'corpus'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setDemoTab(tab)}
+                className={cx(
+                  "px-4 py-3 text-sm font-medium transition-colors border-b-2",
+                  demoTab === tab 
+                    ? "text-gold-400 border-gold-400" 
+                    : "text-gray-400 border-transparent hover:text-gray-200"
+                )}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          <div className="min-h-[500px]">
+            {demoTab === 'ask' && <Ask systemStatus={systemStatus} />}
+            {demoTab === 'verify' && <Verify systemStatus={systemStatus} />}
+            {demoTab === 'corpus' && <CorpusHealth systemStatus={systemStatus} />}
+          </div>
         </div>
       </section>
 

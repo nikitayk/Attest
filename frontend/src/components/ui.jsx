@@ -39,6 +39,7 @@ export function SectionHeader({ eyebrow, title, description, actions }) {
 export function Pill({ tone = 'default', children }) {
   const tones = {
     default: 'border-gray-600 bg-gray-700/50 text-gray-200',
+    neutral: 'border-gray-600 bg-gray-700/50 text-gray-200',
     accent: 'border-gold-600/50 bg-gold-900/30 text-gold-200',
     success: 'border-green-600/50 bg-green-900/30 text-green-200',
     warning: 'border-yellow-600/50 bg-yellow-900/30 text-yellow-200',
