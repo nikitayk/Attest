@@ -2,7 +2,11 @@
 
 > ATTEST provides cryptographic proof that RAG answers are grounded in real, unaltered, timestamped source material. It detects tampering, quarantines compromised documents, and issues verifiable certificates for every answer.
 
-**Status:** Production-ready with Neon Postgres + pgvector persistence. See `PROJECT_PLAN.md` and `PROGRESS.md`.
+[![CI](https://github.com/nikitayk/Attest/actions/workflows/ci.yml/badge.svg)](https://github.com/nikitayk/Attest/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Demo: Live](https://img.shields.io/badge/demo-live-brightgreen)](https://attest-eight.vercel.app)
+
+**Status:** Portfolio project demonstrating production-grade practices with Neon Postgres + pgvector persistence. See `PROJECT_PLAN.md` and `PROGRESS.md`.
 
 ## 🚀 Quick Start
 
@@ -96,6 +100,23 @@ graph TD
     style O fill:#f99,stroke:#333,stroke-width:2px
     style V fill:#9f9,stroke:#333,stroke-width:2px
     style G fill:#e0f7fa,stroke:#333,stroke-width:2px
+```
+
+### Tamper Detection Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ATTEST
+    User->>ATTEST: POST /query "What's the incident response policy?"
+    ATTEST->>ATTEST: retrieve + rehash chunks
+    ATTEST-->>User: signed answer certificate
+    User->>ATTEST: POST /demo/simulate-tampering
+    ATTEST->>ATTEST: mutate a chunk
+    User->>ATTEST: POST /query (same question)
+    ATTEST->>ATTEST: rehash chunks vs manifest
+    ATTEST-->>User: mismatch detected, 409 - answer withheld, document quarantined
+    Note over User: verify.py --certificate cert.json (offline) → VALID - grounded in unaltered source
 ```
 
 ## Integrity Monitor
@@ -247,7 +268,7 @@ This outputs metrics for:
 - **OWASP ASI06**: Memory & Context Poisoning — the threat category ATTEST addresses.
 - **Sigstore/Rekor**: Conceptual model (transparency log). MVP = local Ed25519 only; Rekor = Stretch.
 
-## Resume Bullets
+## Highlights
 
 - Architected cryptographic chain-of-custody for agentic RAG (SHA-256 Merkle tree, Ed25519 signed manifests and answer certificates)
 - Built integrity monitor with lazy, cron-based, and manual integrity checking modes
@@ -282,4 +303,4 @@ This outputs metrics for:
 
 ## 🤝 Contributing
 
-This is a demonstration project for cryptographic chain of custody in RAG systems. Feel free to fork and experiment!
+This is a portfolio project demonstrating cryptographic chain of custody in RAG systems. Feel free to fork and experiment!
