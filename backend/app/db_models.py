@@ -45,6 +45,9 @@ class Manifest(Base):
     manifest_id = Column(String, primary_key=True)
     merkle_root = Column(String, nullable=False)
     chunk_hashes = Column(JSON, nullable=False)  # IMMUTABLE ground truth: {doc_id, chunk_index, hash}[]
+    document_hashes = Column(JSON, nullable=False, server_default=text("'{}'::jsonb"))
+    chunk_size = Column(Integer, nullable=False, server_default=text("500"))
+    chunk_overlap = Column(Integer, nullable=False, server_default=text("50"))
     signature = Column(String, nullable=False)  # Ed25519 over canonical JSON
     embedding_model = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

@@ -17,7 +17,7 @@ from app.crypto import (
     load_private_key,
     sign_bytes,
 )
-from app.ingest import chunk_text
+from app.ingest import chunk_text, list_corpus_files, extract_text_from_file
 from app.models import AnswerCertificate, CertificateChunk
 from app.storage import ManifestStore
 

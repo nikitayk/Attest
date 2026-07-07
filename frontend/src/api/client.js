@@ -46,15 +46,8 @@ export async function getCertificate(certificateId) {
   return apiRequest(`/certificate/${certificateId}`)
 }
 
-export async function verifyCertificate(certificate, publicKeyOverride = null) {
-  return apiRequest('/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      certificate,
-      public_key_override: publicKeyOverride,
-    }),
-  })
+export async function getPublicKey() {
+  return apiRequest('/public-key')
 }
 
 export async function triggerMonitor() {
@@ -69,10 +62,6 @@ export async function getMonitorStatus() {
 
 export async function getCorpusHealth() {
   return apiRequest('/corpus/health')
-}
-
-export async function getPublicKey() {
-  return apiRequest('/public-key')
 }
 
 export async function triggerIngest(docId = null) {

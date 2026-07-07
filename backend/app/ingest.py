@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import gc
+import io
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +24,8 @@ from app.storage import ManifestStore
 
 if TYPE_CHECKING:
     from app.vectorstore import VectorStore
+
+logger = logging.getLogger(__name__)
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
@@ -52,6 +57,43 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
+def _log_memory(label: str) -> None:
+    """Log RSS during ingestion when enabled."""
+    settings = get_settings()
+    if not settings.ingest_log_memory:
+        return
+    try:
+        import psutil
+
+        rss_mb = psutil.Process().memory_info().rss / (1024 * 1024)
+        logger.info("Ingest memory [%s]: %.1f MB RSS", label, rss_mb)
+    except Exception:
+        logger.info("Ingest checkpoint: %s", label)
+
+
+def extract_text_from_file(doc_path: Path) -> str:
+    """Extract normalized UTF-8 text from markdown, text, or PDF corpus files."""
+    suffix = doc_path.suffix.lower()
+    if suffix == ".pdf":
+        import pypdf
+
+        reader = pypdf.PdfReader(str(doc_path))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    else:
+        text = doc_path.read_text(encoding="utf-8")
+
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def list_corpus_files(data_dir: Path) -> list[Path]:
+    """Return corpus files in deterministic order."""
+    return (
+        sorted(data_dir.glob("*.md"))
+        + sorted(data_dir.glob("*.txt"))
+        + sorted(data_dir.glob("*.pdf"))
+    )
+
+
 def build_signed_manifest_from_dir(
     data_dir: Path | None = None,
     *,
@@ -62,16 +104,16 @@ def build_signed_manifest_from_dir(
     if data_dir is None:
         data_dir = settings.resolve_path(settings.data_dir)
 
-    doc_files = sorted(data_dir.glob("*.md")) + sorted(data_dir.glob("*.txt"))
+    doc_files = list_corpus_files(data_dir)
     if not doc_files:
-        raise ValueError(f"No .md or .txt files found in {data_dir}")
+        raise ValueError(f"No corpus files found in {data_dir}")
 
     all_chunks: list[ChunkRecord] = []
     document_hashes: dict[str, str] = {}
 
     for doc_path in doc_files:
         doc_id = doc_path.stem
-        text = doc_path.read_text(encoding="utf-8")
+        text = extract_text_from_file(doc_path)
         document_hashes[doc_id] = hash_bytes(text.encode("utf-8"))
 
         chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
@@ -113,6 +155,23 @@ async def seed_preview_manifest(manifest_store: ManifestStore) -> Manifest:
     return manifest
 
 
+async def _flush_embedding_batch(
+    vector_store: VectorStore,
+    chunk_ids: list[str],
+    texts: list[str],
+    metadatas: list[dict[str, str | int]],
+) -> None:
+    """Embed and persist one batch, then release temporary references."""
+    if not texts:
+        return
+
+    _log_memory(f"before embed batch ({len(texts)} chunks)")
+    embeddings = vector_store.embed_texts(texts)
+    await vector_store.add_chunks(chunk_ids, texts, metadatas)
+    _log_memory(f"after embed batch ({len(texts)} chunks)")
+    gc.collect()
+
+
 async def ingest_corpus(
     data_dir: Path | None = None,
     vector_store: VectorStore | None = None,
@@ -121,7 +180,7 @@ async def ingest_corpus(
     """
     Full ingestion pipeline: read docs → chunk → hash → Merkle → sign → store.
 
-    Returns signed Manifest with all chunk records and Merkle root.
+    Embeddings are written in batches to keep memory usage bounded on small hosts.
     """
     settings = get_settings()
     if data_dir is None:
@@ -133,33 +192,30 @@ async def ingest_corpus(
     if manifest_store is None:
         manifest_store = ManifestStore()
 
-    # Wipe existing collection for reseed-on-boot
+    _log_memory("start")
     await vector_store.delete_collection()
+    await manifest_store.clear_documents()
 
-    # Read all documents
-    doc_files = sorted(data_dir.glob("*.md")) + sorted(data_dir.glob("*.txt"))
+    doc_files = list_corpus_files(data_dir)
     if not doc_files:
-        raise ValueError(f"No .md or .txt files found in {data_dir}")
+        raise ValueError(f"No corpus files found in {data_dir}")
 
     all_chunks: list[ChunkRecord] = []
     document_hashes: dict[str, str] = {}
     chunk_ids: list[str] = []
     texts: list[str] = []
     metadatas: list[dict[str, str | int]] = []
+    batch_size = settings.ingest_batch_size
 
     for doc_path in doc_files:
         doc_id = doc_path.stem
-        text = doc_path.read_text(encoding="utf-8")
-
-        # Store document-level hash for monitor
+        text = extract_text_from_file(doc_path)
         document_hashes[doc_id] = hash_bytes(text.encode("utf-8"))
 
-        # Chunk and hash
         chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
         for idx, chunk in enumerate(chunks):
             chunk_hash = hash_text(chunk)
-            chunk_record = ChunkRecord(doc_id=doc_id, chunk_index=idx, hash=chunk_hash)
-            all_chunks.append(chunk_record)
+            all_chunks.append(ChunkRecord(doc_id=doc_id, chunk_index=idx, hash=chunk_hash))
             chunk_ids.append(f"{doc_id}#{idx}")
             texts.append(chunk)
             metadatas.append(
@@ -170,11 +226,15 @@ async def ingest_corpus(
                 }
             )
 
-    # Build Merkle tree from all chunk hashes (deterministic order)
+            if len(texts) >= batch_size:
+                await _flush_embedding_batch(vector_store, chunk_ids, texts, metadatas)
+                chunk_ids, texts, metadatas = [], [], []
+
+    await _flush_embedding_batch(vector_store, chunk_ids, texts, metadatas)
+
     all_hashes = [c.hash for c in all_chunks]
     merkle_tree = build_merkle_tree(all_hashes)
 
-    # Build manifest
     manifest_dict = {
         "manifest_id": str(uuid.uuid4()),
         "doc_ids": sorted(document_hashes.keys()),
@@ -187,17 +247,21 @@ async def ingest_corpus(
         "chunk_overlap": settings.chunk_overlap,
     }
 
-    # Sign manifest
     private_key = load_private_key(settings.get_signing_key_pem().encode("utf-8"))
     signature = sign_bytes(canonical_json_bytes(manifest_dict), private_key)
     manifest_dict["signature"] = signature
 
     manifest = Manifest(**manifest_dict)
-
-    await vector_store.add_chunks(chunk_ids, texts, metadatas)
-
-    # Store manifest in Postgres
     await manifest_store.store_manifest(manifest)
+    await manifest_store.store_documents(document_hashes)
+
+    _log_memory("complete")
+    logger.info(
+        "Ingestion complete: %d docs, %d chunks, root=%s...",
+        len(manifest.doc_ids),
+        len(manifest.chunks),
+        manifest.merkle_root[:16],
+    )
 
     return manifest
 
@@ -225,29 +289,24 @@ async def ingest_single_document(
 ) -> Manifest:
     """
     Ingest a single document (for upload functionality).
-    
+
     Creates a new manifest with just this document.
     """
     settings = get_settings()
-    
-    # Chunk and hash
+
     chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
     chunk_hashes = [hash_text(chunk) for chunk in chunks]
-    
-    # Build chunk records
+
     all_chunks = [
         ChunkRecord(doc_id=doc_id, chunk_index=idx, hash=chunk_hash)
         for idx, chunk_hash in enumerate(chunk_hashes)
     ]
-    
-    # Build Merkle tree
+
     all_hashes = [c.hash for c in all_chunks]
     merkle_tree = build_merkle_tree(all_hashes)
-    
-    # Document hash
+
     document_hashes = {doc_id: hash_bytes(text.encode("utf-8"))}
-    
-    # Build manifest
+
     manifest_dict = {
         "manifest_id": str(uuid.uuid4()),
         "doc_ids": [doc_id],
@@ -259,19 +318,16 @@ async def ingest_single_document(
         "chunk_size": settings.chunk_size,
         "chunk_overlap": settings.chunk_overlap,
     }
-    
-    # Sign manifest
+
     private_key = load_private_key(settings.get_signing_key_pem().encode("utf-8"))
     signature = sign_bytes(canonical_json_bytes(manifest_dict), private_key)
     manifest_dict["signature"] = signature
-    
+
     manifest = Manifest(**manifest_dict)
-    
-    # Store in vector store
+
     embeddings = vector_store.embed_texts(chunks)
     await vector_store.add_documents(doc_id, chunks, embeddings)
-    
-    # Store manifest
     await manifest_store.store_manifest(manifest)
-    
+    await manifest_store.store_documents(document_hashes)
+
     return manifest

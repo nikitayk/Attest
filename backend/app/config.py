@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     preview_embedding_label: str = "preview-lexical-v1"
     top_k: int = 3
     auto_ingest_on_startup: bool = True
+    ingest_batch_size: int = 32
+    ingest_log_memory: bool = True
     hosted_preview_mode: bool = False
     allow_mutating_operations: bool = True
     allowed_origins: list[str] = Field(

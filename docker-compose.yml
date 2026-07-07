@@ -1,0 +1,49 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: attest
+      POSTGRES_PASSWORD: attest
+      POSTGRES_DB: attest
+    ports:
+      - "5432:5432"
+    volumes:
+      - attest_pgdata:/var/lib/postgresql/data
+      - ./backend/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attest -d attest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      ATTEST_DATABASE_URL: postgresql://attest:attest@db:5432/attest
+      ATTEST_GROQ_API_KEY: ${ATTEST_GROQ_API_KEY:-}
+      ATTEST_GROQ_MODEL: llama-3.3-70b-versatile
+      ATTEST_ALLOWED_ORIGINS: '["http://localhost:5173","http://localhost:3000","http://localhost"]'
+      ATTEST_AUTO_INGEST_ON_STARTUP: "true"
+      ATTEST_SIGNING_KEY_PEM: ${ATTEST_SIGNING_KEY_PEM:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/data:/app/data:ro
+      - ./backend/keys:/app/keys:ro
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  attest_pgdata:

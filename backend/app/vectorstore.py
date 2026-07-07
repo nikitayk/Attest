@@ -13,14 +13,26 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 
+def _engine_connect_args(database_url: str) -> dict:
+    if "sslmode=require" in database_url or "neon.tech" in database_url:
+        return {"ssl": "require"}
+    return {}
+
+
 class VectorStore:
     """pgvector wrapper with sentence-transformers embeddings."""
 
     def __init__(self):
         settings = get_settings()
-        # Convert postgres:// or postgresql:// to postgresql+asyncpg:// for asyncpg
-        db_url = settings.database_url.replace("postgres://", "postgresql+asyncpg://").replace("postgresql://", "postgresql+asyncpg://")
-        self.engine = create_async_engine(db_url, echo=False, connect_args={"ssl": "require"})
+        db_url = (
+            settings.database_url.replace("postgres://", "postgresql+asyncpg://")
+            .replace("postgresql://", "postgresql+asyncpg://")
+        )
+        self.engine = create_async_engine(
+            db_url,
+            echo=False,
+            connect_args=_engine_connect_args(settings.database_url),
+        )
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
@@ -142,13 +154,7 @@ class VectorStore:
             await session.commit()
 
     async def delete_document(self, doc_id: str) -> None:
-        """
-        Delete all chunks for a specific document.
-        
-        Used for document deletion functionality.
-        """
+        """Delete all chunks for a specific document."""
         async with self.async_session() as session:
-            await session.execute(
-                select(Chunk).where(Chunk.doc_id == doc_id).delete()
-            )
+            await session.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
             await session.commit()

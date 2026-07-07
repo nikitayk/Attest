@@ -24,8 +24,7 @@ def _test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv("ATTEST_SIGNING_KEY_PEM", signing_key_pem)
     monkeypatch.setenv("ATTEST_GROQ_API_KEY", "test-groq-key")
-    monkeypatch.setenv("ATTEST_CHROMA_PATH", str(tmp_path / "chroma"))
-    monkeypatch.setenv("ATTEST_MANIFEST_DB_PATH", str(tmp_path / "attest.db"))
+    monkeypatch.setenv("ATTEST_DATABASE_URL", "postgresql://test:test@localhost/test")
 
     yield
 

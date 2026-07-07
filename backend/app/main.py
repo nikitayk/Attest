@@ -16,7 +16,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
-from app.crypto import canonical_json_bytes, load_public_key, verify_signature, verify_merkle_proof, hash_text
+from app.crypto import canonical_json_bytes, load_public_key, hash_text
 from app.ingest import ingest_corpus, seed_preview_manifest
 from app.models import (
     DocumentList,
@@ -25,8 +25,6 @@ from app.models import (
     ManifestSummary,
     QueryRequest,
     QueryResult,
-    VerifyRequest,
-    VerifyResult,
 )
 from app.monitor import IntegrityMonitor
 from app.query import retrieve_and_answer, retrieve_and_answer_preview
@@ -164,23 +162,43 @@ def healthz_check():
     return {"status": "ok"}
 
 @app.get("/health")
-def health_check():
-    """Detailed health check endpoint."""
+async def health_check():
+    """Comprehensive health check endpoint."""
     settings = get_settings()
     preview_mode = settings.hosted_preview_mode
-    return {
-        "status": "ok",
-        "manifest_loaded": _manifest is not None,
-        "mode": "hosted-preview" if preview_mode else "full",
-        "capabilities": {
-            "query": True,
-            "verify": True,
-            "monitor": True,
-            "seed_ingest": (not preview_mode) and settings.allow_mutating_operations,
-            "document_upload": (not preview_mode) and settings.allow_mutating_operations,
-            "document_delete": (not preview_mode) and settings.allow_mutating_operations,
-        },
-    }
+    try:
+        manifest_store = ManifestStore()
+        doc_count = await manifest_store.get_document_count()
+        chunk_count = 0
+        if not preview_mode and _vector_store is not None:
+            chunk_count = await _vector_store.count()
+        elif not preview_mode:
+            vector_store = VectorStore()
+            chunk_count = await vector_store.count()
+
+        return {
+            "status": "healthy",
+            "manifest_loaded": _manifest is not None,
+            "mode": "hosted-preview" if preview_mode else "full",
+            "database": "connected",
+            "document_count": doc_count,
+            "chunk_count": chunk_count,
+            "embedding_model": settings.embedding_model,
+            "llm_model": settings.groq_model,
+            "capabilities": {
+                "query": True,
+                "verify": True,
+                "monitor": True,
+                "seed_ingest": (not preview_mode) and settings.allow_mutating_operations,
+                "document_upload": (not preview_mode) and settings.allow_mutating_operations,
+                "document_delete": (not preview_mode) and settings.allow_mutating_operations,
+            },
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+        }
 
 
 @app.post("/ingest")
@@ -337,157 +355,6 @@ def get_public_key():
         return {"error": "Public key file not found"}
 
     return public_key_path.read_text(encoding="utf-8")
-
-
-@app.post("/verify")
-def verify_certificate_endpoint(request: VerifyRequest) -> VerifyResult:
-    """
-    Verify an AnswerCertificate server-side for UI convenience.
-    
-    Note: For zero-trust verification, use the standalone CLI verifier.
-    This endpoint is provided for UI demo convenience only.
-    """
-    settings = get_settings()
-    
-    # Load public key
-    if request.public_key_override:
-        try:
-            public_key = load_public_key(request.public_key_override.encode("utf-8"))
-        except Exception as e:
-            return VerifyResult(
-                ok=False,
-                reason=f"Failed to load public key override: {e}",
-                hash_match=False,
-                proof_valid=False,
-                signature_valid=False,
-            )
-    else:
-        public_key_path = settings.resolve_path(settings.public_key_path)
-        if not public_key_path.exists():
-            return VerifyResult(
-                ok=False,
-                reason="Public key file not found",
-                hash_match=False,
-                proof_valid=False,
-                signature_valid=False,
-            )
-        try:
-            public_key_pem = public_key_path.read_text(encoding="utf-8")
-            public_key = load_public_key(public_key_pem.encode("utf-8"))
-        except Exception as e:
-            return VerifyResult(
-                ok=False,
-                reason=f"Failed to load public key: {e}",
-                hash_match=False,
-                proof_valid=False,
-                signature_valid=False,
-            )
-    
-    # Extract certificate fields
-    cert = request.certificate
-    signature = cert.get("signature")
-    if not signature:
-        return VerifyResult(
-            ok=False,
-            reason="Certificate missing signature",
-            hash_match=False,
-            proof_valid=False,
-            signature_valid=False,
-        )
-    
-    # Verify signature
-    cert_copy = cert.copy()
-    del cert_copy["signature"]
-    try:
-        payload_bytes = canonical_json_bytes(cert_copy)
-    except Exception as e:
-        return VerifyResult(
-            ok=False,
-            reason=f"Failed to canonicalize certificate: {e}",
-            hash_match=False,
-            proof_valid=False,
-            signature_valid=False,
-        )
-    
-    signature_valid = verify_signature(payload_bytes, signature, public_key)
-    if not signature_valid:
-        return VerifyResult(
-            ok=False,
-            reason="Signature verification failed",
-            hash_match=False,
-            proof_valid=False,
-            signature_valid=False,
-        )
-    
-    # Verify each chunk
-    merkle_root = cert.get("merkle_root")
-    if not merkle_root:
-        return VerifyResult(
-            ok=False,
-            reason="Certificate missing merkle_root",
-            hash_match=True,
-            proof_valid=False,
-            signature_valid=True,
-        )
-    
-    chunks = cert.get("chunks", [])
-    if not chunks:
-        return VerifyResult(
-            ok=False,
-            reason="Certificate has no chunks",
-            hash_match=True,
-            proof_valid=False,
-            signature_valid=True,
-        )
-    
-    hash_match = True
-    proof_valid = True
-    
-    for chunk_data in chunks:
-        chunk_text = chunk_data.get("text")
-        chunk_hash = chunk_data.get("hash")
-        merkle_proof = chunk_data.get("merkle_proof", [])
-        chunk_index = chunk_data.get("chunk_index", 0)
-        
-        if not chunk_text or not chunk_hash:
-            return VerifyResult(
-                ok=False,
-                reason=f"Chunk missing text or hash: {chunk_data}",
-                hash_match=False,
-                proof_valid=False,
-                signature_valid=True,
-            )
-        
-        # Re-hash chunk
-        actual_hash = hash_text(chunk_text)
-        if actual_hash != chunk_hash:
-            return VerifyResult(
-                ok=False,
-                reason=f"Chunk hash mismatch at index {chunk_index}",
-                hash_match=False,
-                proof_valid=False,
-                signature_valid=True,
-            )
-        
-        # Verify Merkle proof
-        if not verify_merkle_proof(chunk_hash, merkle_proof, merkle_root, chunk_index):
-            return VerifyResult(
-                ok=False,
-                reason=f"Merkle proof verification failed for chunk {chunk_index}",
-                hash_match=True,
-                proof_valid=False,
-                signature_valid=True,
-            )
-    
-    # All checks passed
-    manifest_timestamp = cert.get("manifest_timestamp", "unknown")
-    return VerifyResult(
-        ok=True,
-        reason=f"VALID — grounded in unaltered source at {manifest_timestamp}",
-        hash_match=True,
-        proof_valid=True,
-        signature_valid=True,
-    )
 
 
 @app.post("/documents")
@@ -1018,42 +885,13 @@ When you ask a question about this document, ATTEST will:
     }
 
 
-@app.get("/health")
-async def health_check():
-    """Comprehensive health check endpoint."""
-    try:
-        settings = get_settings()
-        manifest_store = ManifestStore()
-        
-        # Check database connection
-        doc_count = await manifest_store.get_document_count()
-        
-        # Check vector store
-        vector_store = VectorStore()
-        chunk_count = await vector_store.count()
-        
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "document_count": doc_count,
-            "chunk_count": chunk_count,
-            "embedding_model": settings.embedding_model,
-            "llm_model": settings.groq_model
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-
 @app.get("/metrics")
 async def get_metrics():
     """Performance metrics endpoint."""
     import statistics
-    
+
     query_latencies = performance_metrics["query_latency"]
-    
+
     return {
         "query_latency": {
             "count": len(query_latencies),
@@ -1063,5 +901,5 @@ async def get_metrics():
             "p99": sorted(query_latencies)[int(len(query_latencies) * 0.99)] if len(query_latencies) > 0 else 0,
         },
         "error_count": performance_metrics["error_count"],
-        "total_queries": len(query_latencies)
+        "total_queries": len(query_latencies),
     }

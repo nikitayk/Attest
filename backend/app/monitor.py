@@ -53,6 +53,8 @@ class IntegrityMonitor:
             doc_path = data_dir / f"{doc_id}.md"
             if not doc_path.exists():
                 doc_path = data_dir / f"{doc_id}.txt"
+            if not doc_path.exists():
+                doc_path = data_dir / f"{doc_id}.pdf"
 
             if not doc_path.exists():
                 # File missing — quarantine
@@ -69,7 +71,9 @@ class IntegrityMonitor:
                 continue
 
             try:
-                current_hash = hash_bytes(doc_path.read_bytes())
+                from app.ingest import extract_text_from_file
+
+                current_hash = hash_bytes(extract_text_from_file(doc_path).encode("utf-8"))
                 if current_hash != expected_hash:
                     # Hash mismatch — quarantine
                     await self._manifest_store.quarantine_doc(

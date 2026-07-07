@@ -12,6 +12,7 @@ groq>=0.13.0,<1.0
 pypdf>=5.1.0,<6.0
 sentence-transformers>=3.0.0,<4.0
 slowapi>=0.1.9,<1.0
+psutil>=6.0.0,<7.0
 sentry-sdk[fastapi]>=2.0.0,<3.0
 structlog>=24.0.0,<25.0
 python-json-logger>=2.0.7,<3.0

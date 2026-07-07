@@ -61,6 +61,37 @@ def test_canonical_json_is_deterministic():
     assert bytes1 == b'{"a":1,"b":2,"c":{"nested":"value"}}'
 
 
+def test_reordered_manifest_fails_signature():
+    """A manifest with chunks reordered after signing must fail verification."""
+    from app.models import ChunkRecord
+
+    private_pem, public_pem = generate_keypair()
+    private_key = load_private_key(private_pem)
+    public_key = load_public_key(public_pem)
+
+    chunks = [
+        ChunkRecord(doc_id="a", chunk_index=0, hash="hash-a"),
+        ChunkRecord(doc_id="b", chunk_index=0, hash="hash-b"),
+    ]
+    manifest_dict = {
+        "manifest_id": "m-1",
+        "doc_ids": ["a", "b"],
+        "chunks": [c.model_dump() for c in chunks],
+        "merkle_root": "root",
+        "document_hashes": {"a": "doc-a", "b": "doc-b"},
+        "created_at": "2026-07-05T00:00:00+00:00",
+        "embedding_model": "test",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+    }
+    signature = sign_bytes(canonical_json_bytes(manifest_dict), private_key)
+
+    reordered = manifest_dict.copy()
+    reordered["chunks"] = list(reversed(manifest_dict["chunks"]))
+
+    assert not verify_signature(canonical_json_bytes(reordered), signature, public_key)
+
+
 def test_reordered_manifest_preserves_signature_under_canonical_json():
     """Canonical JSON signing ignores dict insertion order for equivalent payloads."""
     private_pem, public_pem = generate_keypair()

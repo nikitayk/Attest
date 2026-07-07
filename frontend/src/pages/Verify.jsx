@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
-import { verifyCertificate } from '../api/client'
+import { useState } from 'react'
+import { getPublicKey } from '../api/client'
+import { verifyCertificateClient } from '../lib/verify'
 import { Alert, Button, CodeBlock, Pill, SectionHeader, Surface } from '../components/ui'
 
 const CHECK_ITEMS = [
@@ -21,11 +22,9 @@ export default function Verify({ systemStatus }) {
     setResult(null)
 
     try {
-      // Parse certificate JSON
       const cert = JSON.parse(certificate)
-      
-      // Use server-side verification endpoint
-      const data = await verifyCertificate(cert)
+      const publicKeyPem = await getPublicKey()
+      const data = await verifyCertificateClient(cert, publicKeyPem)
 
       if (data.ok) {
         setResult({
@@ -35,7 +34,6 @@ export default function Verify({ systemStatus }) {
           proof_valid: data.proof_valid,
           signature_valid: data.signature_valid,
         })
-        // Stagger reveal of checks
         setVisibleChecks([false, false, false])
         setTimeout(() => setVisibleChecks([true, false, false]), 250)
         setTimeout(() => setVisibleChecks([true, true, false]), 500)
@@ -44,7 +42,7 @@ export default function Verify({ systemStatus }) {
         setError(data.reason || 'Verification failed')
       }
     } catch (err) {
-      setError('Invalid certificate JSON or verification failed')
+      setError(err.message || 'Invalid certificate JSON or verification failed')
     } finally {
       setLoading(false)
     }
@@ -84,12 +82,12 @@ export default function Verify({ systemStatus }) {
         <SectionHeader
           eyebrow="Independent Verification"
           title="Prove the answer is grounded, untampered, and signed."
-          description="Paste or import any answer certificate, then validate its chunk hashes, Merkle proofs, and signature with the backend verifier."
+          description="Paste or import any answer certificate. Verification runs entirely in your browser using the published public key — no trust in the backend required."
           actions={
             <>
-              <Pill tone="accent">Server Verification</Pill>
+              <Pill tone="accent">Client-Side Zero-Trust</Pill>
               <Pill tone={systemStatus?.capabilities?.verify ? 'success' : 'warning'}>
-                {systemStatus?.capabilities?.verify ? 'Verifier Online' : 'Verifier Offline'}
+                {systemStatus?.capabilities?.verify ? 'Public Key Available' : 'Public Key Offline'}
               </Pill>
             </>
           }
@@ -148,11 +146,11 @@ export default function Verify({ systemStatus }) {
 
             <Surface className="p-4">
               <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
-                Zero-Trust Option
+                Offline CLI Option
               </p>
               <p className="mt-2 text-sm text-gray-300">
-                For an offline workflow, export the certificate and run the standalone CLI verifier
-                against the public key.
+                For a fully offline workflow, export the certificate and run the standalone Python
+                verifier against the public key.
               </p>
               <div className="mt-3">
                 <CodeBlock>
@@ -175,7 +173,7 @@ export default function Verify({ systemStatus }) {
         <Surface className="p-6">
           <div className="flex flex-wrap items-center gap-2">
             <Pill tone="success">Certificate Valid</Pill>
-            <Pill tone="accent">All cryptographic checks passed</Pill>
+            <Pill tone="accent">Verified locally in browser</Pill>
           </div>
           <h3 className="mt-4 text-xl font-semibold text-white">Verification result</h3>
           <p className="mt-2 text-sm text-gray-300">{result.reason}</p>
