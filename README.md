@@ -153,6 +153,11 @@ python backend/verifier/verify.py \
 - Compromised signing key breaks trust model
 - No external transparency log in MVP (Rekor is Stretch)
 - First boot requires full corpus ingestion (subsequent boots load from Neon)
+- Integrity is hashed over each document's **extracted text**, not raw file bytes. This is the
+  right boundary for RAG (the model consumes extracted text, so a byte-level change that leaves
+  the text identical can't poison an answer) — but it means integrity depends on deterministic
+  extraction. Chunking is fixed and character-based, and PDF text is extracted deterministically
+  with `pypdf`, specifically to avoid false tamper alerts from non-deterministic extraction.
 
 ## 📚 API Endpoints
 
@@ -251,21 +256,26 @@ ATTEST_GROQ_API_KEY=unused \
 python eval/run_eval.py
 ```
 
-Results on the 8-document policy corpus (44 chunks), local pgvector, measured 2026-07-11:
+Results on the 10-document corpus (8 markdown policies + 2 NIST PDF excerpts, 151 chunks),
+local pgvector, measured 2026-07-11:
 
 | Metric | Value | What it measures |
 |---|---|---|
-| Tamper detection rate | **100%** (8/8) | Poisoned every document on disk post-ingestion; monitor quarantined all |
-| False-positive rate | **0%** (0/40) | Re-checked the untampered corpus 5×; zero wrongful quarantines |
-| Verification latency (p50) | **0.32 ms** | Standalone verifier over 100 certificates |
-| Proof size (mean) | **0.398 KB** | Mean Merkle inclusion proof per chunk — O(log n), not the whole document |
-| Ingestion throughput | **12.72 docs/sec** | Full corpus chunk → hash → Merkle → embed → sign → store |
+| Tamper detection rate | **100%** (10/10) | Poisoned every document's *content* post-ingestion; monitor quarantined all |
+| False-positive rate | **0%** (0/50) | Re-checked the untampered corpus 5×; zero wrongful quarantines |
+| Verification latency (p50) | **0.31 ms** | Standalone verifier over 100 certificates |
+| Proof size (mean) | **0.531 KB** | Mean Merkle inclusion proof per chunk — O(log n), not the whole document |
+| Ingestion throughput | **9.16 docs/sec** | Full corpus chunk → hash → Merkle → embed → sign → store (incl. PDF extraction) |
 
 > **Reading these honestly:** 100% detection / 0% false positives is *expected*, not lucky —
-> integrity here is exact SHA-256 comparison, so any changed byte is caught deterministically
-> and an unchanged byte never trips. The engineering value is the fail-closed pipeline,
-> O(log n) proofs, and independent verifiability — not a probabilistic ML score. The real
-> gaps are named in **Limitations** (pre-ingestion poisoning, key compromise, semantic drift).
+> integrity is exact SHA-256 comparison over each document's extracted text, so any content
+> change is caught deterministically and unchanged content never trips. One nuance the eval
+> surfaced: integrity is hashed over *extracted text*, not raw file bytes — appending trailing
+> bytes to a PDF (which changes the file but not the text pypdf reads) is intentionally *not*
+> flagged, because the content the model would use is unchanged. The engineering value is the
+> fail-closed pipeline, O(log n) proofs, and independent verifiability — not a probabilistic ML
+> score. The real gaps are named in **Limitations** (pre-ingestion poisoning, key compromise,
+> semantic drift).
 
 ## Related Work
 
@@ -273,11 +283,17 @@ Results on the 8-document policy corpus (44 chunks), local pgvector, measured 20
 - **OWASP ASI06**: Memory & Context Poisoning — the threat category ATTEST addresses.
 - **Sigstore/Rekor**: Conceptual model (transparency log). MVP = local Ed25519 only; Rekor = Stretch.
 
+**Corpus:** 8 self-authored policy documents plus two public-domain excerpts from NIST —
+*AI Risk Management Framework (AI 100-1)* and the *Generative AI Profile (AI 600-1)*, whose
+data-poisoning / information-integrity controls map directly to ATTEST's threat model. NIST
+publications are U.S. Government works in the public domain. The OWASP Agentic AI Top 10 is
+cited above as the source of the ASI06 classification but not redistributed here.
+
 ## Resume Bullets
 
 - Architected a cryptographic chain-of-custody system for agentic **RAG** pipelines — hashing every ingested chunk into a hand-rolled, **Ed25519**-signed **Merkle tree** (**SHA-256**) backed by **Postgres/pgvector** on a **FastAPI** service, generating tamper-evident, independently verifiable answer certificates for every AI-generated response.
-- Built an autonomous integrity-monitoring agent achieving a **100% tamper-detection rate at a 0% false-positive rate** across an 8-document adversarial eval set, enforcing a **fail-closed** pipeline that quarantines poisoned or drifted sources instead of silently re-indexing them.
-- Designed a **zero-trust** verifier that validates answer provenance entirely client-side in the browser (**React**, Ed25519 + Merkle inclusion proofs) with no backend access — plus a standalone **Python** CLI — at **0.32 ms** p50 latency and **O(log n)** (~0.4 KB) proof size, addressing OWASP **ASI06** (Memory & Context Poisoning); fully **Docker**-containerized.
+- Built an autonomous integrity-monitoring agent achieving a **100% tamper-detection rate at a 0% false-positive rate** across a 10-document adversarial eval set (**pypdf**-ingested policy + NIST PDF corpus), enforcing a **fail-closed** pipeline that quarantines poisoned or drifted sources instead of silently re-indexing them.
+- Designed a **zero-trust** verifier that validates answer provenance entirely client-side in the browser (**React**, Ed25519 + Merkle inclusion proofs) with no backend access — plus a standalone **Python** CLI — at **0.31 ms** p50 latency and **O(log n)** (~0.5 KB) proof size, addressing OWASP **ASI06** (Memory & Context Poisoning); fully **Docker**-containerized.
 
 ## 📖 Documentation
 

@@ -147,3 +147,24 @@ If using the web dashboard instead of curl:
 - Show VALID result with hash match, Merkle proof valid, signature valid
 
 This approach is more visual and easier to follow for non-technical audiences.
+
+## Corpus questions (including the NIST PDF documents)
+
+The corpus includes two public-domain NIST PDF excerpts alongside the policy markdown, which
+exercise the `pypdf` ingestion path. Sample questions for the Ask tab / QA demo:
+
+Policy corpus (markdown):
+- "What is the vacation policy?"
+- "How long are financial records retained?"
+- "What are the steps in the incident response runbook?"
+
+NIST PDF corpus:
+- "What are the core functions of the NIST AI Risk Management Framework?"
+- "How does the NIST Generative AI Profile describe data poisoning risk?"
+- "What does the framework say about information integrity for GenAI systems?"
+
+Out-of-scope (should abstain / 'I don't know'):
+- "What is the company's stock price today?"
+
+> Note: running these as an automated QA-accuracy eval requires a Groq API key (the LLM step).
+> The crypto/integrity metrics in `eval/run_eval.py` need no LLM and run against all 10 docs.

@@ -14,8 +14,8 @@ before an interview. Every number here is real and measured (2026-07-11) — see
   inclusion-proof verification from scratch (not a library), and the same proof format
   verifies in three independent places: the backend, a standalone Python CLI, and a
   from-scratch browser verifier.
-- **Numbers:** 100% tamper detection, 0% false positives (8-doc adversarial set), 0.32 ms
-  p50 verification, ~0.4 KB O(log n) proofs, 12.7 docs/sec ingest.
+- **Numbers:** 100% tamper detection, 0% false positives (10-doc adversarial set: policies +
+  NIST PDFs), 0.31 ms p50 verification, ~0.5 KB O(log n) proofs, 9.2 docs/sec ingest.
 - **The resume bullets** are in `README.md` under "Resume Bullets".
 
 ---
@@ -54,7 +54,7 @@ Say these in first person, confidently.
 
 **Why a Merkle tree instead of putting the whole document in the certificate?**
 "So the proof is O(log n), not O(n). A certificate only needs the sibling hashes on the path
-from one chunk to the root — about 0.4 KB in my eval — instead of shipping the whole corpus.
+from one chunk to the root — about 0.5 KB in my eval — instead of shipping the whole corpus.
 It's the same reason Bitcoin uses them for SPV proofs."
 
 **Why hand-roll the Merkle tree instead of a library like merkletools?**
@@ -213,11 +213,11 @@ cross-language bugs. You have to execute the thing."
 
 | Metric | Value | What it really means |
 |---|---|---|
-| Tamper detection | 100% (8/8) | Every poisoned doc was quarantined |
-| False positive | 0% (0/40) | 5 clean re-checks × 8 docs, zero wrongful quarantines |
-| Verify latency p50 | 0.32 ms | Standalone verifier over 100 certs |
-| Proof size mean | 0.398 KB | O(log n) inclusion proof, not the whole doc |
-| Ingest throughput | 12.72 docs/sec | Full chunk→hash→Merkle→embed→sign→store |
+| Tamper detection | 100% (10/10) | Every poisoned doc was quarantined |
+| False positive | 0% (0/50) | 5 clean re-checks × 10 docs, zero wrongful quarantines |
+| Verify latency p50 | 0.31 ms | Standalone verifier over 100 certs |
+| Proof size mean | 0.531 KB | O(log n) inclusion proof, not the whole doc |
+| Ingest throughput | 9.16 docs/sec | Full chunk→hash→Merkle→embed→sign→store (incl. PDF extraction) |
 
 **Say this unprompted — it shows maturity:** "100% detection and 0% false positives sounds
 too good, so let me be honest about why it's not luck and not that impressive on its own.
@@ -229,6 +229,16 @@ interesting engineering is the fail-closed pipeline, the O(log n) proofs, and in
 verifiability. And the honest limitations are real: I can't catch pre-ingestion poisoning, a
 compromised key breaks the model, and this is document-level exact-match, not semantic drift
 detection."
+
+**A nuance I found by actually running the eval (great to volunteer):** "When I added PDF
+documents to the corpus, my first eval showed 80% detection — the PDFs weren't caught. I dug
+in: I hash the *extracted text*, not the raw file bytes, and my test was appending trailing
+bytes to the PDF, which pypdf ignores — so the extracted text was identical and correctly
+wasn't flagged. That's actually the right boundary: the model consumes extracted text, so a
+byte change that doesn't alter the text can't poison an answer. I fixed the *test* to tamper
+the actual content (which is real poisoning) and it's caught 100%. The takeaway I'd give: know
+exactly what your integrity check commits to — here it's extracted content, and that's a
+deliberate choice, not an accident."
 
 ---
 

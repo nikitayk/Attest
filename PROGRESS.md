@@ -27,7 +27,10 @@ See `DEPLOYMENT.md`.
 - [x] **Client-side zero-trust verifier** — `frontend/src/lib/verify.js` (`@noble/ed25519`
   + Web Crypto). No server-side `/verify` route. Cross-checked byte-for-byte against the
   Python signer (see Deviations).
-- [x] **Real eval run** — adversarial poison-all + clean re-check on the 8-doc corpus.
+- [x] **Corpus PDFs (§2.5)** — added 2 public-domain NIST PDF excerpts (AI 100-1 RMF, AI 600-1
+  GenAI Profile) to `backend/data/`, exercising the previously-untested `pypdf` ingestion path
+  end-to-end (10 docs / 151 chunks total).
+- [x] **Real eval run** — adversarial poison-all + clean re-check on the 10-doc corpus.
 - [x] **Test suite green** — 37 passed with a DB / 36 passed + 1 skipped without one.
 
 ## Fixed during the 2026-07-11 pass (bugs the prior checklist did not catch)
@@ -76,12 +79,21 @@ See `DEPLOYMENT.md`.
   with batched embedding + gc. Production therefore runs in `hosted_preview_mode` (lexical
   preview embeddings, no torch). Documented honestly in `DEPLOYMENT.md`.
 
-## Eval numbers (measured 2026-07-11, 8-doc corpus / 44 chunks, local pgvector)
+## Eval numbers (measured 2026-07-11, 10-doc corpus / 151 chunks, local pgvector)
 
-- Tamper detection: **100%** (8/8 poisoned docs quarantined)
-- False positive: **0%** (0/40 clean re-checks)
-- Verify latency (p50): **0.32 ms** (100 certificates)
-- Proof size (mean): **0.398 KB** (O(log n) Merkle inclusion proof)
-- Ingest throughput: **12.72 docs/sec**
+Corpus = 8 markdown policies + 2 NIST public-domain PDF excerpts (AI 100-1 RMF, AI 600-1
+GenAI Profile), which exercise the previously-untested `pypdf` ingestion path.
+
+- Tamper detection: **100%** (10/10 docs' content poisoned and quarantined)
+- False positive: **0%** (0/50 clean re-checks)
+- Verify latency (p50): **0.31 ms** (100 certificates)
+- Proof size (mean): **0.531 KB** (O(log n) Merkle inclusion proof)
+- Ingest throughput: **9.16 docs/sec** (includes PDF text extraction)
 
 Raw output: `eval/results.json`.
+
+**Nuance the eval surfaced (documented in README Limitations + INTERVIEWPREP):** integrity is
+hashed over each doc's *extracted text*, not raw bytes. Appending trailing bytes to a PDF
+leaves pypdf's extracted text unchanged and is intentionally not flagged (the content the model
+uses is unchanged); the eval therefore tampers PDFs by changing extracted content (dropping a
+page), which is caught 100%.
