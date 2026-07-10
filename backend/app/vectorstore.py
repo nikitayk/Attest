@@ -42,12 +42,16 @@ class VectorStore:
         self._embedding_dim = self._embedding_model.get_sentence_embedding_dimension()
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a list of texts using sentence-transformers."""
-        embeddings = self._embedding_model.encode(texts, convert_to_numpy=False)
-        # convert_to_numpy=False returns a list, but ensure it's the right format
-        if hasattr(embeddings, 'tolist'):
-            return embeddings.tolist()
-        return embeddings
+        """Generate embeddings for a list of texts using sentence-transformers.
+
+        Returns plain Python lists of floats — pgvector rejects torch tensors, so we
+        embed to a numpy array and convert. `encode([])` returns an empty array, which
+        `.tolist()` turns into `[]`.
+        """
+        if not texts:
+            return []
+        embeddings = self._embedding_model.encode(texts, convert_to_numpy=True)
+        return embeddings.tolist()
 
     async def add_chunks(
         self,

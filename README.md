@@ -64,9 +64,11 @@ Visit `http://localhost:5173` to access the application.
 ATTEST provides cryptographic proof that RAG answers are grounded in unaltered source material:
 
 1. **Ingestion**: Documents are chunked, hashed (SHA-256), organized into a Merkle tree, and signed with Ed25519
-2. **Query**: Retrieved chunks are re-hashed against the manifest before answer generation
+2. **Query**: Retrieved chunks are re-hashed against the manifest before answer generation; on mismatch the answer is withheld and the document is quarantined (fail-closed)
 3. **Certificate**: Answers include a self-contained certificate with Merkle proofs and signature
-4. **Verification**: Standalone CLI verifies certificates without trusting the backend
+4. **Verification (zero-trust)**: Two independent paths, neither of which trusts the backend:
+   - **In-browser** — the Verify tab performs the entire Ed25519 + SHA-256 + Merkle-proof check locally with `@noble/ed25519` and the Web Crypto API, fetching only the public key. No server-side `/verify` route exists, so the backend can never be the trust boundary.
+   - **Standalone Python CLI** — `verifier/verify.py` depends only on `cryptography` + the standard library and never imports application code; the offline, portable option.
 
 ```mermaid
 graph TD
@@ -87,9 +89,9 @@ graph TD
     N --> P[Sign Certificate]
     P --> Q[Return Answer + Cert]
     
-    R[Verify CLI] --> S[Load Certificate]
-    S --> T[Verify Signature]
-    T --> U[Verify Merkle Proofs]
+    R[Verify: browser or CLI] --> S[Load Certificate + public key]
+    S --> T[Verify Ed25519 Signature]
+    T --> U[Re-hash chunks + Verify Merkle Proofs]
     U --> V[VALID/INVALID]
     
     style M fill:#f9f,stroke:#333,stroke-width:4px
@@ -125,13 +127,25 @@ See `DEMO.md` for the 90-second live demo script showing tamper detection and ze
 
 ## Zero-Trust Verification
 
-Verify any certificate without trusting the backend:
+Verification never requires trusting the backend. Anyone can confirm an answer was
+grounded in unaltered source using only the certificate JSON and the published public key.
+
+**In the browser** — open the Verify tab, paste or import a certificate, and the check runs
+entirely client-side (Ed25519 signature → per-chunk SHA-256 → Merkle inclusion proofs) via
+`frontend/src/lib/verify.js`. The only network call is fetching the public key.
+
+**From the terminal** — the standalone CLI depends only on `cryptography` + the Python
+standard library and imports no application code:
 
 ```bash
 python backend/verifier/verify.py \
   --certificate path/to/cert.json \
   --public-key backend/keys/public_key.pem
 ```
+
+> The browser and CLI verifiers, the signer (`app/crypto.py`), and the standalone verifier
+> all canonicalize signing payloads as compact, key-sorted, **raw UTF-8** JSON
+> (`ensure_ascii=False`) so their byte streams — and therefore signatures — match exactly.
 
 ## Limitations
 
@@ -227,19 +241,31 @@ python backend/verifier/verify.py \
 
 ## Evaluation
 
-Run the evaluation harness to measure system performance:
+Run the adversarial evaluation harness (no LLM calls — every metric is crypto/embedding
+based and reproducible):
 
 ```bash
-cd attest
+docker compose up -d db   # local pgvector, or point ATTEST_DATABASE_URL at Neon
+ATTEST_DATABASE_URL=postgresql://attest:attest@localhost:5432/attest \
+ATTEST_GROQ_API_KEY=unused \
 python eval/run_eval.py
 ```
 
-This outputs metrics for:
-- Tamper detection rate
-- False positive rate
-- Verification latency (p50)
-- Proof size (mean)
-- Ingestion throughput
+Results on the 8-document policy corpus (44 chunks), local pgvector, measured 2026-07-11:
+
+| Metric | Value | What it measures |
+|---|---|---|
+| Tamper detection rate | **100%** (8/8) | Poisoned every document on disk post-ingestion; monitor quarantined all |
+| False-positive rate | **0%** (0/40) | Re-checked the untampered corpus 5×; zero wrongful quarantines |
+| Verification latency (p50) | **0.32 ms** | Standalone verifier over 100 certificates |
+| Proof size (mean) | **0.398 KB** | Mean Merkle inclusion proof per chunk — O(log n), not the whole document |
+| Ingestion throughput | **12.72 docs/sec** | Full corpus chunk → hash → Merkle → embed → sign → store |
+
+> **Reading these honestly:** 100% detection / 0% false positives is *expected*, not lucky —
+> integrity here is exact SHA-256 comparison, so any changed byte is caught deterministically
+> and an unchanged byte never trips. The engineering value is the fail-closed pipeline,
+> O(log n) proofs, and independent verifiability — not a probabilistic ML score. The real
+> gaps are named in **Limitations** (pre-ingestion poisoning, key compromise, semantic drift).
 
 ## Related Work
 
@@ -249,12 +275,9 @@ This outputs metrics for:
 
 ## Resume Bullets
 
-- Architected cryptographic chain-of-custody for agentic RAG (SHA-256 Merkle tree, Ed25519 signed manifests and answer certificates)
-- Built integrity monitor with lazy, cron-based, and manual integrity checking modes
-- Zero-trust standalone verifier — Merkle proofs + signature check, addresses OWASP ASI06
-- Implemented fail-closed RAG pipeline that quarantines tampered documents instead of returning poisoned answers
-- Migrated persistence from local SQLite + ChromaDB to Neon Postgres + pgvector for production-ready vector storage
-- Deployed full-stack system with React frontend, FastAPI backend, pgvector vector store, and Groq LLM integration
+- Architected a cryptographic chain-of-custody system for agentic **RAG** pipelines — hashing every ingested chunk into a hand-rolled, **Ed25519**-signed **Merkle tree** (**SHA-256**) backed by **Postgres/pgvector** on a **FastAPI** service, generating tamper-evident, independently verifiable answer certificates for every AI-generated response.
+- Built an autonomous integrity-monitoring agent achieving a **100% tamper-detection rate at a 0% false-positive rate** across an 8-document adversarial eval set, enforcing a **fail-closed** pipeline that quarantines poisoned or drifted sources instead of silently re-indexing them.
+- Designed a **zero-trust** verifier that validates answer provenance entirely client-side in the browser (**React**, Ed25519 + Merkle inclusion proofs) with no backend access — plus a standalone **Python** CLI — at **0.32 ms** p50 latency and **O(log n)** (~0.4 KB) proof size, addressing OWASP **ASI06** (Memory & Context Poisoning); fully **Docker**-containerized.
 
 ## 📖 Documentation
 

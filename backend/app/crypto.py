@@ -120,8 +120,16 @@ def verify_merkle_proof(
 
 
 def canonical_json_bytes(payload: dict[str, Any]) -> bytes:
-    """Canonical signing serialization: sorted keys, no whitespace."""
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    """Canonical signing serialization: sorted keys, no whitespace, raw UTF-8.
+
+    `ensure_ascii=False` is load-bearing: the browser verifier (frontend/src/lib/verify.js)
+    canonicalizes with JSON.stringify, which emits raw UTF-8 and never \\uXXXX-escapes.
+    Escaping here would make the two byte streams diverge for any non-ASCII character
+    (e.g. an em-dash in an LLM answer), breaking client-side signature verification.
+    """
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def generate_keypair() -> tuple[bytes, bytes]:

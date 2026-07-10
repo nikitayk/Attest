@@ -6,23 +6,26 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      # Neon Postgres connection string (postgresql://...). Required — the app will not
+      # boot without it. Set the secret value in the Render dashboard.
+      - key: ATTEST_DATABASE_URL
+        sync: false
+      # Ed25519 private key PEM matching the committed keys/public_key.pem. Set the secret
+      # value in the Render dashboard; never commit it.
       - key: ATTEST_SIGNING_KEY_PEM
         sync: false
       - key: ATTEST_GROQ_API_KEY
         sync: false
       - key: ATTEST_GROQ_MODEL
         value: llama-3.3-70b-versatile
-      - key: ATTEST_OPENAI_API_KEY
-        sync: false
       - key: ATTEST_ALLOWED_ORIGINS
         sync: false
+      # Free tier is 512MB; sentence-transformers + torch peaks ~540MB, so the hosted
+      # instance runs in preview mode (lexical embeddings, no torch) and does not auto-ingest.
+      # See DEPLOYMENT.md "Memory & the free tier" for the measured numbers and options.
       - key: ATTEST_AUTO_INGEST_ON_STARTUP
         value: "false"
       - key: ATTEST_HOSTED_PREVIEW_MODE
         value: "true"
       - key: ATTEST_ALLOW_MUTATING_OPERATIONS
         value: "false"
-      - key: ATTEST_CHROMA_PATH
-        value: /tmp/chroma
-      - key: ATTEST_MANIFEST_DB_PATH
-        value: /tmp/attest.db

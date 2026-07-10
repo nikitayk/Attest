@@ -54,8 +54,15 @@ def verify_merkle_proof(
 
 
 def canonical_json_bytes(payload: dict) -> bytes:
-    """Canonical signing serialization: sorted keys, no whitespace."""
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    """Canonical signing serialization: sorted keys, no whitespace, raw UTF-8.
+
+    ensure_ascii=False must match the signer (app/crypto.py) and the browser verifier
+    (frontend/src/lib/verify.js); escaping non-ASCII would break verification of any
+    certificate whose text contains non-ASCII characters.
+    """
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def load_public_key(pem: bytes) -> ed25519.Ed25519PublicKey:

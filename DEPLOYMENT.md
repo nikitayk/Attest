@@ -17,38 +17,19 @@ This guide walks through deploying ATTEST to production using Render (backend) a
 Generate a new keypair locally. You'll do this once per deployment.
 
 ```bash
-cd attest/backend
-
-python -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization
-
-k = Ed25519PrivateKey.generate()
-private_pem = k.private_bytes(
-    serialization.Encoding.PEM,
-    serialization.PrivateFormat.PKCS8,
-    serialization.NoEncryption()
-)
-public_pem = k.public_key().public_bytes(
-    serialization.Encoding.PEM,
-    serialization.PublicFormat.SubjectPublicKeyInfo
-)
-
-with open('private.pem', 'wb') as f:
-    f.write(private_pem)
-with open('keys/public_key.pem', 'wb') as f:
-    f.write(public_pem)
-
-print('Keys generated successfully')
-print('Private key saved to: private.pem (DO NOT COMMIT)')
-print('Public key saved to: keys/public_key.pem (COMMIT THIS)')
-"
+cd backend
+python generate_keys.py
 ```
 
+This writes `keys/public_key.pem` (commit this) and `keys/private.pem` (gitignored).
+
 **Important:**
-- Commit `backend/keys/public_key.pem` to Git
-- Keep `private.pem` secure locally - you'll paste it into Render
-- Never commit the private key to the repository
+- Commit `backend/keys/public_key.pem` to Git — the browser/CLI verifiers fetch it.
+- Set `keys/private.pem`'s full contents as `ATTEST_SIGNING_KEY_PEM` in Render (Step 2).
+- The committed public key and the Render private key **must be the same pair**, or every
+  certificate will fail verification. (The audit found the live deploy serving a *placeholder*
+  public key with no matching private key — this step fixes that.)
+- Never commit the private key.
 
 ## Step 1.5: Create Local Env Files
 
@@ -89,13 +70,17 @@ git push origin main
 - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
 **Environment Variables:**
-- `ATTEST_SIGNING_KEY_PEM`: Paste the entire content of your `private.pem` file (including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines)
+- `ATTEST_DATABASE_URL`: Your Neon Postgres connection string (`postgresql://...`). **Required** — the app will not boot without it.
+- `ATTEST_SIGNING_KEY_PEM`: Paste the entire content of your `keys/private.pem` file (including the `-----BEGIN PRIVATE KEY-----` / `-----END PRIVATE KEY-----` lines)
 - `ATTEST_GROQ_API_KEY`: Your Groq API key from https://console.groq.com/
 - `ATTEST_GROQ_MODEL`: `llama-3.3-70b-versatile` (or current free model)
-- `ATTEST_ALLOWED_ORIGINS`: Your Vercel origin, for example `https://attest-frontend.vercel.app`
-- `ATTEST_AUTO_INGEST_ON_STARTUP`: `false` on Render free tier to avoid cold-start memory spikes
-- `ATTEST_CHROMA_PATH`: `/tmp/chroma`
-- `ATTEST_MANIFEST_DB_PATH`: `/tmp/attest.db`
+- `ATTEST_ALLOWED_ORIGINS`: Your Vercel origin, for example `https://attest-eight.vercel.app`
+- `ATTEST_AUTO_INGEST_ON_STARTUP`: `false` on the free tier (see "Memory & the free tier" below)
+- `ATTEST_HOSTED_PREVIEW_MODE`: `true` on the free tier (lexical preview embeddings, no torch)
+
+> `render.yaml` already declares these (secrets as `sync: false`); set the secret values in
+> the dashboard. `ATTEST_CHROMA_PATH` / `ATTEST_MANIFEST_DB_PATH` are **obsolete** after the
+> Neon migration — do not set them.
 
 **Instance Settings:**
 - **Instance Type**: Free
@@ -116,15 +101,20 @@ Once deployed, test the health endpoint:
 curl https://your-app-name.onrender.com/health
 ```
 
-Expected response:
+Expected response (fields include `mode` and `capabilities`):
 ```json
 {
-  "status": "ok",
-  "manifest_loaded": false
+  "status": "healthy",
+  "manifest_loaded": false,
+  "mode": "hosted-preview",
+  "database": "connected",
+  "document_count": 0
 }
 ```
 
-With `ATTEST_AUTO_INGEST_ON_STARTUP=false`, `manifest_loaded` stays `false` until you seed the corpus.
+If `status` is `unhealthy`, the `error` field usually means `ATTEST_DATABASE_URL` is wrong or
+Neon is unreachable. With `ATTEST_AUTO_INGEST_ON_STARTUP=false`, `manifest_loaded` stays
+`false` until you seed the corpus.
 
 Then trigger the initial corpus build after the service is healthy:
 ```bash
@@ -223,9 +213,9 @@ python -m verifier.verify \
 - Check Render logs for "ATTEST_SIGNING_KEY_PEM is required" or similar
 - Ensure all env vars are set in Render dashboard
 
-**Issue**: ChromaDB build error on Windows
-- This is expected locally; Render uses Linux so it will work fine
-- If deploying locally on Windows, install MSVC build tools
+**Issue**: `greenlet` / async DB errors
+- SQLAlchemy's async engine requires `greenlet` (now pinned in `requirements.txt`). If you see
+  "the greenlet library is required", reinstall dependencies.
 
 ### Frontend can't connect to backend
 
@@ -239,13 +229,35 @@ python -m verifier.verify \
 - First request after spin-down is faster when startup ingest is disabled
 - Set up cron-job.org to keep it warm
 
-### Render runs out of memory
+### Memory & the free tier (measured — read this honestly)
 
-**Issue**: Service OOMs during startup or first ingest
-- Set `ATTEST_AUTO_INGEST_ON_STARTUP=false` so Render boots before embeddings are computed
-- Keep `ATTEST_CHROMA_PATH=/tmp/chroma` so Chroma uses disk-backed storage instead of in-memory state
-- Trigger `/ingest` manually after deploy, or upload documents incrementally from the frontend
-- If manual ingest still OOMs, move to Render Starter; 512MB is tight for Python + Chroma + sentence-transformers
+Ingestion memory was instrumented with `ATTEST_INGEST_LOG_MEMORY=true`. Measured RSS on a full
+8-doc ingest with batched embedding (`ATTEST_INGEST_BATCH_SIZE=16`, `gc.collect()` per batch,
+model loaded once):
+
+| Point | RSS |
+|---|---|
+| Start (embedding model loaded) | ~437 MB |
+| After first embed batch | ~534 MB |
+| Peak / complete | ~540 MB |
+
+The batched-embedding fix keeps *incremental* growth tiny (~3 MB per subsequent batch), so the
+earlier boot-time-vs-ingest-time OOM was a real fix — but the **torch + sentence-transformers
+baseline alone (~437 MB) already crowds Render's 512 MB free tier**, and the embedding peak
+(~540 MB) exceeds it. Honest conclusion: **you cannot run full semantic embeddings on the
+free tier.** Two options:
+
+1. **Free tier (current):** run `ATTEST_HOSTED_PREVIEW_MODE=true`. This uses lightweight
+   lexical preview embeddings (no torch), so the box fits in 512 MB. The entire crypto story —
+   hashing, Merkle proofs, signing, fail-closed quarantine, client-side/CLI verification — is
+   fully real; only retrieval quality is lexical rather than semantic. This is the honest
+   free-tier demo.
+2. **Semantic retrieval:** upgrade to Render Starter (or any ≥1 GB instance), set
+   `ATTEST_HOSTED_PREVIEW_MODE=false` and `ATTEST_ALLOW_MUTATING_OPERATIONS=true`, then trigger
+   `/ingest` once against Neon.
+
+Either way, keep `ATTEST_AUTO_INGEST_ON_STARTUP=false` so the service becomes healthy before
+any heavy work runs.
 
 ### Ingestion fails on cold start
 

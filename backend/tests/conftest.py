@@ -24,7 +24,11 @@ def _test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv("ATTEST_SIGNING_KEY_PEM", signing_key_pem)
     monkeypatch.setenv("ATTEST_GROQ_API_KEY", "test-groq-key")
-    monkeypatch.setenv("ATTEST_DATABASE_URL", "postgresql://test:test@localhost/test")
+    # Respect a real DB URL when the caller provides one (local docker pgvector or a
+    # CI Postgres service), so storage-integration tests actually exercise Postgres.
+    # Fall back to an unreachable placeholder so the deterministic suite needs no DB.
+    if "ATTEST_DATABASE_URL" not in os.environ:
+        monkeypatch.setenv("ATTEST_DATABASE_URL", "postgresql://test:test@localhost/test")
 
     yield
 

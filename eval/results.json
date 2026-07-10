@@ -1,0 +1,9 @@
+{
+  "tamper_rate": 100.0,
+  "false_positive_rate": 0.0,
+  "verify_latency_ms": 0.32166700111702085,
+  "proof_size_kb": 0.3984375,
+  "ingest_throughput": 12.72191964524371,
+  "corpus_docs": 8,
+  "corpus_chunks": 44
+}

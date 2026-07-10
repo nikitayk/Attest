@@ -203,7 +203,7 @@ async def health_check():
 
 @app.post("/ingest")
 @limiter.limit("5/minute")
-async def trigger_ingest(request: IngestRequest, req: Request) -> ManifestSummary:
+async def trigger_ingest(payload: IngestRequest, request: Request) -> ManifestSummary:
     """
     Trigger ingestion (full corpus or single doc).
 
@@ -237,7 +237,7 @@ async def trigger_ingest(request: IngestRequest, req: Request) -> ManifestSummar
 
 @app.post("/query")
 @limiter.limit("10/minute")
-async def query_endpoint(request: QueryRequest, req: Request) -> QueryResult:
+async def query_endpoint(payload: QueryRequest, request: Request) -> QueryResult:
     """
     Query the RAG system and return answer with certificate.
     """
@@ -250,7 +250,7 @@ async def query_endpoint(request: QueryRequest, req: Request) -> QueryResult:
 
         if settings.hosted_preview_mode:
             answer, error, certificate = await retrieve_and_answer_preview(
-                request.query, _manifest_store
+                payload.query, _manifest_store
             )
         else:
             if _vector_store is None or _manifest_store is None:
@@ -262,7 +262,7 @@ async def query_endpoint(request: QueryRequest, req: Request) -> QueryResult:
                 )
 
             answer, error, certificate = await retrieve_and_answer(
-                request.query, _vector_store, _manifest_store
+                payload.query, _vector_store, _manifest_store
             )
 
         if error:
@@ -728,7 +728,7 @@ async def simulate_tampering():
 
 @app.post("/demo/run-isolated")
 @limiter.limit("5/minute")
-async def run_isolated_demo(req: Request):
+async def run_isolated_demo(request: Request):
     """
     Run an isolated demo that uses a throwaway document,
     ensuring the main corpus is not modified.

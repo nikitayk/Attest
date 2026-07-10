@@ -113,23 +113,33 @@ def main_module(monkeypatch: pytest.MonkeyPatch):
 
 
 class DummyVectorStore:
-    """Minimal vector store for endpoint tests."""
+    """Minimal async vector store matching the real VectorStore interface."""
 
     def __init__(self):
         self.deleted_doc_ids: list[str] = []
         self.add_calls: list[dict] = []
+        self._chunk_count = 0
 
-    def delete_document(self, doc_id: str) -> None:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0, 0.0, 0.0] for _ in texts]
+
+    async def count(self) -> int:
+        return self._chunk_count
+
+    async def delete_document(self, doc_id: str) -> None:
         self.deleted_doc_ids.append(doc_id)
 
-    def add_documents(self, doc_id: str, chunks: list[str], embeddings: list[list[float]]) -> None:
+    async def add_documents(
+        self, doc_id: str, chunks: list[str], embeddings: list[list[float]]
+    ) -> None:
         self.add_calls.append(
             {"doc_id": doc_id, "chunks": chunks, "embeddings": embeddings}
         )
+        self._chunk_count += len(chunks)
 
 
 class InMemoryManifestStore:
-    """Minimal manifest store covering endpoint behavior under test."""
+    """Minimal async manifest store matching the real ManifestStore interface."""
 
     def __init__(self, manifest: Manifest | None = None):
         self.manifest = manifest
@@ -137,27 +147,41 @@ class InMemoryManifestStore:
         self.certificates: dict[str, AnswerCertificate] = {}
         self.stored_certificates: list[AnswerCertificate] = []
         self.quarantined: dict[str, str] = {}
+        self.documents: dict[str, str] = {}
         self.cleared = False
 
-    def get_latest_manifest(self) -> Manifest | None:
+    async def get_latest_manifest(self) -> Manifest | None:
         return self.manifest
 
-    def store_manifest(self, manifest: Manifest) -> None:
+    async def store_manifest(self, manifest: Manifest) -> None:
         self.manifest = manifest
         self.stored_manifests.append(manifest)
 
-    def clear_manifest(self) -> None:
+    async def clear_manifest(self) -> None:
         self.manifest = None
         self.cleared = True
         self.quarantined.clear()
 
-    def quarantine_doc(self, doc_id: str, reason: str) -> None:
+    async def clear_documents(self) -> None:
+        self.documents.clear()
+
+    async def store_documents(
+        self, document_hashes: dict[str, str], source: str = "seed"
+    ) -> None:
+        self.documents.update(document_hashes)
+
+    async def get_document_count(self) -> int:
+        if self.documents:
+            return len(self.documents)
+        return len(self.manifest.doc_ids) if self.manifest else 0
+
+    async def quarantine_doc(self, doc_id: str, reason: str) -> None:
         self.quarantined[doc_id] = reason
 
-    def is_quarantined(self, doc_id: str) -> bool:
+    async def is_quarantined(self, doc_id: str) -> bool:
         return doc_id in self.quarantined
 
-    def get_chunk_hash(self, doc_id: str, chunk_index: int) -> str | None:
+    async def get_chunk_hash(self, doc_id: str, chunk_index: int) -> str | None:
         if not self.manifest:
             return None
         for chunk in self.manifest.chunks:
@@ -165,12 +189,20 @@ class InMemoryManifestStore:
                 return chunk.hash
         return None
 
-    def store_certificate(self, certificate: AnswerCertificate) -> None:
+    async def store_certificate(self, certificate: AnswerCertificate) -> None:
         self.certificates[certificate.certificate_id] = certificate
         self.stored_certificates.append(certificate)
 
-    def get_certificate(self, certificate_id: str) -> AnswerCertificate | None:
+    async def get_certificate(self, certificate_id: str) -> AnswerCertificate | None:
         return self.certificates.get(certificate_id)
+
+
+def _use_stores(main_module, monkeypatch, store, vector_store):
+    """Point routes (which instantiate stores fresh per call) at the stubs."""
+    monkeypatch.setattr(main_module, "ManifestStore", lambda: store)
+    monkeypatch.setattr(main_module, "VectorStore", lambda: vector_store)
+    main_module._manifest_store = store
+    main_module._vector_store = vector_store
 
 
 def _make_manifest(documents: dict[str, str]) -> Manifest:
@@ -256,19 +288,21 @@ def _make_certificate_model(doc_id: str = "alpha") -> AnswerCertificate:
     )
 
 
-def test_health_endpoint_reports_manifest_loaded_state(main_module):
+def test_health_endpoint_reports_manifest_loaded_state(main_module, monkeypatch: pytest.MonkeyPatch):
     """Health endpoint reflects whether the in-memory manifest is loaded."""
+    _use_stores(main_module, monkeypatch, InMemoryManifestStore(), DummyVectorStore())
     main_module._manifest = None
     client = TestClient(main_module.app)
 
     empty_response = client.get("/health")
     assert empty_response.status_code == 200
-    assert empty_response.json() == {"status": "ok", "manifest_loaded": False}
+    assert empty_response.json()["status"] == "healthy"
+    assert empty_response.json()["manifest_loaded"] is False
 
     main_module._manifest = _make_manifest({"alpha": "alpha text"}).model_dump()
     loaded_response = client.get("/health")
     assert loaded_response.status_code == 200
-    assert loaded_response.json() == {"status": "ok", "manifest_loaded": True}
+    assert loaded_response.json()["manifest_loaded"] is True
 
 
 def test_ingest_endpoint_returns_manifest_summary(main_module, monkeypatch: pytest.MonkeyPatch):
@@ -277,16 +311,12 @@ def test_ingest_endpoint_returns_manifest_summary(main_module, monkeypatch: pyte
     store = InMemoryManifestStore()
     vector_store = DummyVectorStore()
 
-    monkeypatch.setattr(main_module, "VectorStore", lambda: vector_store)
-    monkeypatch.setattr(main_module, "ManifestStore", lambda: store)
-    monkeypatch.setattr(
-        main_module,
-        "ingest_corpus",
-        lambda vector_store, manifest_store: manifest,
-    )
+    _use_stores(main_module, monkeypatch, store, vector_store)
 
-    main_module._vector_store = None
-    main_module._manifest_store = None
+    async def _fake_ingest(vector_store, manifest_store):
+        return manifest
+
+    monkeypatch.setattr(main_module, "ingest_corpus", _fake_ingest)
     main_module._manifest = None
 
     client = TestClient(main_module.app)
@@ -306,18 +336,11 @@ def test_query_endpoint_stores_certificate(main_module, monkeypatch: pytest.Monk
     store = InMemoryManifestStore(_make_manifest({"alpha": "alpha text"}))
     certificate = _make_certificate_model()
 
-    monkeypatch.setattr(
-        main_module,
-        "retrieve_and_answer",
-        lambda query, vector_store, manifest_store: (
-            "Grounded answer",
-            None,
-            certificate,
-        ),
-    )
+    async def _fake_retrieve(query, vector_store, manifest_store):
+        return ("Grounded answer", None, certificate)
 
-    main_module._manifest_store = store
-    main_module._vector_store = DummyVectorStore()
+    monkeypatch.setattr(main_module, "retrieve_and_answer", _fake_retrieve)
+    _use_stores(main_module, monkeypatch, store, DummyVectorStore())
 
     client = TestClient(main_module.app)
     response = client.post("/query", json={"query": "What is alpha?"})
@@ -330,14 +353,13 @@ def test_query_endpoint_stores_certificate(main_module, monkeypatch: pytest.Monk
     assert store.stored_certificates == [certificate]
 
 
-def test_certificate_endpoint_returns_stored_certificate(main_module):
+def test_certificate_endpoint_returns_stored_certificate(main_module, monkeypatch: pytest.MonkeyPatch):
     """Certificate endpoint returns a stored certificate payload."""
     store = InMemoryManifestStore()
     certificate = _make_certificate_model()
-    store.store_certificate(certificate)
+    store.certificates[certificate.certificate_id] = certificate
 
-    main_module._manifest_store = store
-    main_module._vector_store = DummyVectorStore()
+    _use_stores(main_module, monkeypatch, store, DummyVectorStore())
 
     client = TestClient(main_module.app)
     response = client.get(f"/certificate/{certificate.certificate_id}")
@@ -349,14 +371,13 @@ def test_certificate_endpoint_returns_stored_certificate(main_module):
     assert payload["chunks"][0]["hash"] == certificate.chunks[0].hash
 
 
-def test_list_documents_surfaces_quarantine_status(main_module):
+def test_list_documents_surfaces_quarantine_status(main_module, monkeypatch: pytest.MonkeyPatch):
     """Documents endpoint reports both healthy and quarantined rows."""
     manifest = _make_manifest({"alpha": "alpha text", "beta": "beta text"})
     store = InMemoryManifestStore(manifest)
-    store.quarantine_doc("beta", "hash mismatch")
+    store.quarantined["beta"] = "hash mismatch"
 
-    main_module._manifest_store = store
-    main_module._vector_store = DummyVectorStore()
+    _use_stores(main_module, monkeypatch, store, DummyVectorStore())
 
     client = TestClient(main_module.app)
     response = client.get("/documents")
@@ -367,14 +388,13 @@ def test_list_documents_surfaces_quarantine_status(main_module):
     assert statuses == {"alpha": "OK", "beta": "QUARANTINED"}
 
 
-def test_delete_last_document_clears_manifest(main_module):
+def test_delete_last_document_clears_manifest(main_module, monkeypatch: pytest.MonkeyPatch):
     """Deleting the final document empties corpus state cleanly."""
     manifest = _make_manifest({"alpha": "alpha text"})
     store = InMemoryManifestStore(manifest)
     vector_store = DummyVectorStore()
 
-    main_module._manifest_store = store
-    main_module._vector_store = vector_store
+    _use_stores(main_module, monkeypatch, store, vector_store)
     main_module._manifest = manifest.model_dump()
 
     client = TestClient(main_module.app)
@@ -393,16 +413,7 @@ def test_upload_document_replaces_existing_doc(main_module, monkeypatch: pytest.
     store = InMemoryManifestStore(manifest)
     vector_store = DummyVectorStore()
 
-    import app.ingest as ingest_module
-
-    monkeypatch.setattr(
-        ingest_module,
-        "create_embeddings",
-        lambda texts, model_name: [[0.1, 0.2, 0.3] for _ in texts],
-    )
-
-    main_module._manifest_store = store
-    main_module._vector_store = vector_store
+    _use_stores(main_module, monkeypatch, store, vector_store)
     main_module._manifest = manifest.model_dump()
 
     client = TestClient(main_module.app)
@@ -432,8 +443,7 @@ def test_monitor_endpoints_detect_tampered_doc(
     manifest = _make_manifest({"alpha": "original text"})
     store = InMemoryManifestStore(manifest)
 
-    main_module._manifest_store = store
-    main_module._vector_store = DummyVectorStore()
+    _use_stores(main_module, monkeypatch, store, DummyVectorStore())
 
     client = TestClient(main_module.app)
 
@@ -459,11 +469,11 @@ def test_public_key_endpoint_returns_pem(main_module):
     assert "BEGIN PUBLIC KEY" in response.text
 
 
-def test_verify_endpoint_accepts_valid_certificate(main_module):
-    """Server-side verifier accepts a correctly signed certificate."""
+def test_verify_route_is_absent_by_design(main_module, monkeypatch: pytest.MonkeyPatch):
+    """Verification is client-side (browser) and CLI only — there is deliberately no
+    server-side /verify route, so the backend can never be the trust boundary."""
+    _use_stores(main_module, monkeypatch, InMemoryManifestStore(), DummyVectorStore())
     certificate, public_pem = _build_signed_certificate()
-    main_module._manifest_store = InMemoryManifestStore()
-    main_module._vector_store = DummyVectorStore()
 
     client = TestClient(main_module.app)
     response = client.post(
@@ -471,8 +481,4 @@ def test_verify_endpoint_accepts_valid_certificate(main_module):
         json={"certificate": certificate, "public_key_override": public_pem},
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["signature_valid"] is True
-    assert payload["proof_valid"] is True
+    assert response.status_code == 404

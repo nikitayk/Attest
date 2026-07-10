@@ -2,62 +2,86 @@
 
 ## Current focus
 
-- [x] **Neon Postgres + pgvector Migration Complete** — Migrated persistence layer from local SQLite + ChromaDB to Neon Postgres with pgvector (2026-07-06)
-  - Created SQLAlchemy models for Postgres schema (documents, chunks, manifests, certificates)
-  - Rewrote storage.py to use async Postgres instead of SQLite
-  - Rewrote vectorstore.py to use pgvector + sentence-transformers instead of ChromaDB
-  - Updated main.py lifespan to connect to Neon and only ingest on first-ever boot
-  - Updated all endpoints to work with async storage/vectorstore
-  - Updated monitor.py and query.py to work with async operations
-  - Added POST /demo/simulate-tampering endpoint for demo tampering simulation
-  - Updated requirements.txt with asyncpg, pgvector, and sentence-transformers
-  - Removed chromadb dependency
+- [x] **Audit, fix, test, and document pass complete (2026-07-11).** Verified every prior
+  claim against real code, fixed latent runtime bugs found only by executing the pipeline,
+  ran a real adversarial eval, and updated all docs with measured numbers.
 
-**Next session entry point:** Set up Neon database and run schema creation, then test the migrated system
+**Next session entry point:** Deploy — provision Neon, set Render env (`ATTEST_DATABASE_URL`,
+`ATTEST_SIGNING_KEY_PEM` from the freshly generated `backend/keys/private.pem`,
+`ATTEST_GROQ_API_KEY`), re-ingest the corpus, and confirm the live tamper-and-verify demo.
+See `DEPLOYMENT.md`.
 
 ## Completed
 
-- [x] **Part 0** — Folder structure, `PROJECT_PLAN.md`, `PROGRESS.md` (2026-07-05)
-- [x] **Step 1.1** — `config.py`, `models.py`, requirements, scaffold tests (2026-07-05)
-- [x] **Step 1.2** — `chunk_text` + deterministic chunk tests (2026-07-05)
-- [x] **Step 1.3** — SHA-256 helpers + Merkle tree + tests 3–5 (2026-07-05)
-- [x] **Step 1.4** — Ed25519 sign/verify manifest + test 6 (2026-07-05)
-- [x] **Step 1.5** — `vectorstore.py` Chroma + embeddings (2026-07-05)
-- [x] **Step 1.6** — `ingest.py` full pipeline (2026-07-05)
-- [x] **Step 1.7** — Groq `query.py` retrieval + generation (2026-07-05)
-- [x] **Step 1.8** — FastAPI routes stub + lifespan reseed (2026-07-05)
-- [x] **Step 2.1** — Query-time chunk hash recheck (2026-07-05)
-- [x] **Step 2.2** — AnswerCertificate build + sign (2026-07-05)
-- [x] **Step 2.3** — GET /certificate/{id} (2026-07-05)
-- [x] **Step 2.4** — Standalone `verify.py` + tests 7–9 (2026-07-05)
-- [x] **Step 2.5** — End-to-end manual demo script (2026-07-05)
-- [x] **Step 3.1** — Document-level hash in manifest (2026-07-05)
-- [x] **Step 3.2** — `monitor.py` + quarantine state (2026-07-05)
-- [x] **Step 3.3** — Lazy check wired in query (2026-07-05)
-- [x] **Step 3.4** — POST /monitor/trigger, GET /monitor/status, GET /corpus/health (2026-07-05)
-- [x] **Step 3.5** — cron-job.org configured + documented (2026-07-05)
-- [x] **Step 4.1** — React 3-tab UI (Ask / Verify / Corpus Health) (2026-07-05)
-- [x] **Step 4.2** — Wired all API endpoints (POST /verify, CORS, API client) (2026-07-05)
-- [x] **Step 4.3** — eval/run_eval.py with real metrics table (2026-07-05)
-- [x] **Step 4.4** — UI styling improvements (custom scrollbar, consistent design) (2026-07-05)
-- [x] **Step 5.2** — README with Mermaid diagram, deployment instructions, demo script, resume bullets (2026-07-05)
-- [x] **Part 4 Corpus** — 8 real markdown documents created (hr-policy, security-policy, incident-runbook, onboarding, data-retention, code-of-conduct, engineering-standards, product-roadmap) (2026-07-05)
-- [x] **Key generation** — generate_keys.py script and .gitignore for private key (2026-07-05)
-- [x] **GitHub Actions CI** — Full CI pipeline with pytest and eval harness (2026-07-05)
-- [x] **test_verify_e2e.py** — 3 comprehensive end-to-end tests (untampered, tampered, storage integration) (2026-07-05)
+- [x] **Part 0–2 (MVP core)** — config, models, deterministic chunking, SHA-256 helpers,
+  hand-rolled Merkle tree + proofs, Ed25519 signing, ingest pipeline, Groq query,
+  query-time recheck, answer certificates, standalone verifier CLI.
+- [x] **Part 3 (monitor)** — document-level hashing, quarantine state, lazy + cron + manual
+  checks, `/monitor/trigger`, `/monitor/status`, `/corpus/health`.
+- [x] **Part 4 (dashboard + eval)** — React 3-tab UI (Ask / Verify / Corpus Health),
+  client-side browser verifier, eval harness.
+- [x] **Neon Postgres + pgvector migration** — async SQLAlchemy, `pgvector.Vector(384)`,
+  HNSW cosine index, reseed/first-boot lifespan. Verified against a live pgvector container.
+- [x] **Docker** — `backend/Dockerfile`, `frontend/Dockerfile`, root `docker-compose.yml`
+  (pgvector db + backend + frontend). `docker compose up -d db` used for local eval/tests.
+- [x] **Client-side zero-trust verifier** — `frontend/src/lib/verify.js` (`@noble/ed25519`
+  + Web Crypto). No server-side `/verify` route. Cross-checked byte-for-byte against the
+  Python signer (see Deviations).
+- [x] **Real eval run** — adversarial poison-all + clean re-check on the 8-doc corpus.
+- [x] **Test suite green** — 37 passed with a DB / 36 passed + 1 skipped without one.
+
+## Fixed during the 2026-07-11 pass (bugs the prior checklist did not catch)
+
+- [x] **slowapi route params** — `@limiter.limit` requires a parameter literally named
+  `request`; `/ingest`, `/query`, `/demo/run-isolated` used `req`, which crashed
+  `app.main` on import. Renamed Starlette params to `request`, body params to `payload`.
+- [x] **Missing `greenlet` dependency** — SQLAlchemy async needs it; every DB call failed
+  without it. Pinned in `requirements.txt`.
+- [x] **Embeddings unstorable** — `SentenceTransformer.encode(convert_to_numpy=False)`
+  returned torch tensors that pgvector rejects, so the real ingest path never worked.
+  Switched to numpy + `.tolist()` with an empty-batch guard.
+- [x] **Canonical-JSON cross-language mismatch** — signer used `ensure_ascii=True` while the
+  browser verifier emits raw UTF-8; any non-ASCII (e.g. an em-dash from the LLM) broke
+  client-side verification. Set `ensure_ascii=False` in `app/crypto.py` and
+  `verifier/verify.py`; added a regression test.
+- [x] **Orphaned signing key** — committed `public_key.pem` had no matching private key.
+  Generated a fresh Ed25519 keypair (public committed, private gitignored + handed off for
+  the Render env var).
+- [x] **Stale tests** — updated async-migration drift in `test_api_endpoints.py` /
+  `test_verify_e2e.py`; removed the obsolete `POST /verify` test (route intentionally
+  absent) and replaced it with a test asserting its absence.
+- [x] **Cleanup** — removed leftover `storage_old.py` / `vectorstore_old.py`.
 
 ## Blocked
 
-_None yet._
+- **Live deployment is a hollow shell until the deploy step runs.** As of the audit the
+  Render backend returned an empty corpus, `manifest_loaded: false`, and a *placeholder*
+  public key — so no certificate could actually be verified in production. Requires the
+  account-holder to complete the Neon + Render env steps above (not done autonomously).
 
 ## Deviations from plan
 
-- **Windows local dev:** `chromadb` requires MSVC build tools on Windows. Step 1.1 tests use minimal deps only (`pydantic`, `cryptography`, `pytest`). Full `requirements-dev.txt` installs on Linux/Render CI.
+- **Client-side verifier (vs. plan Part 3.11 "CLI only").** The Verify tab does full
+  Ed25519 + SHA-256 + Merkle verification in-browser. Rationale: makes "verifiable by anyone
+  without trusting my server" literally true in the UI, not just the CLI. There is
+  deliberately **no** `POST /verify` route so the backend can never be the trust boundary.
+  The standalone CLI remains the canonical offline path. (Decision date: pre-existing in the
+  repo; validated and documented 2026-07-11.)
+- **`ensure_ascii=False` canonical JSON.** Required so the Python signer and the JS/CLI
+  verifiers produce identical signing bytes. Load-bearing, not cosmetic.
+- **Extra endpoints beyond the locked API surface** — `/documents*`, `/demo/*`, `/metrics`,
+  `/healthz`. Kept (they power the dashboard/demo) but noted as drift from Part 3.11.
+- **Render free tier is marginal for full embeddings.** sentence-transformers + torch
+  baseline RSS is ~437 MB, peaking ~540 MB during ingest — above the 512 MB free tier even
+  with batched embedding + gc. Production therefore runs in `hosted_preview_mode` (lexical
+  preview embeddings, no torch). Documented honestly in `DEPLOYMENT.md`.
 
-## Eval numbers (fill when ready)
+## Eval numbers (measured 2026-07-11, 8-doc corpus / 44 chunks, local pgvector)
 
-- Tamper detection: __%
-- False positive: __%
-- Verify latency: __ ms
-- Proof size: __ KB
-- Ingest throughput: __ docs/sec
+- Tamper detection: **100%** (8/8 poisoned docs quarantined)
+- False positive: **0%** (0/40 clean re-checks)
+- Verify latency (p50): **0.32 ms** (100 certificates)
+- Proof size (mean): **0.398 KB** (O(log n) Merkle inclusion proof)
+- Ingest throughput: **12.72 docs/sec**
+
+Raw output: `eval/results.json`.

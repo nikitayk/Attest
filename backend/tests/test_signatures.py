@@ -61,6 +61,23 @@ def test_canonical_json_is_deterministic():
     assert bytes1 == b'{"a":1,"b":2,"c":{"nested":"value"}}'
 
 
+def test_canonical_json_keeps_non_ascii_raw_for_browser_verifier():
+    """Canonical JSON must emit raw UTF-8, not \\uXXXX escapes.
+
+    Regression for the gap where the backend signed with json.dumps(ensure_ascii=True)
+    while the browser verifier (verify.js, JSON.stringify) emits raw UTF-8 — making
+    signatures over any non-ASCII text (e.g. an em-dash in an LLM answer) fail to verify
+    client-side. The bytes here must equal what JSON.stringify would produce.
+    """
+    payload = {"answer": "access is denied — per policy"}
+    result = canonical_json_bytes(payload)
+
+    # Raw UTF-8 em-dash (0xE2 0x80 0x94), never the escaped form.
+    assert "—".encode("utf-8") in result
+    assert b"\\u2014" not in result
+    assert result == '{"answer":"access is denied — per policy"}'.encode("utf-8")
+
+
 def test_reordered_manifest_fails_signature():
     """A manifest with chunks reordered after signing must fail verification."""
     from app.models import ChunkRecord
